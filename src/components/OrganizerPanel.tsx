@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
+import { SummaryCards, SummaryCard, SubTabBar, SubTab } from './SummaryCards';
 
 interface OrganizerPanelProps {
   currentUser: User;
@@ -203,6 +204,76 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
 
   const currentEvent = events.find((e) => e.event_id === selectedEventId) || events[0];
 
+  type OrganizerSubTab = typeof activeSubTab;
+  const today = new Date().toISOString().slice(0, 10);
+  const approvedEvents = events.filter((e) => e.approval_status === 'approved');
+  const totalCapacity = approvedEvents.reduce((acc, e) => acc + e.capacity, 0);
+  const approvedRegistrations = approvedEvents.reduce((acc, e) => acc + e.registered_count, 0);
+  const evaluationResponseRate = totalAttended > 0 ? Math.round((totalEvaluations / totalAttended) * 100) : 0;
+
+  // Sibling pages of each sidebar dropdown; only the current group's tabs are shown
+  const tabGroups: SubTab<OrganizerSubTab>[][] = [
+    [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }],
+    [
+      { id: 'events', label: `Event Management (${events.length})`, icon: Calendar },
+      { id: 'status', label: 'Event Status', icon: ListFilter },
+    ],
+    [
+      { id: 'registrations', label: 'Registration Management', icon: Users },
+      { id: 'attendance', label: 'Attendance Management', icon: UserCheck },
+    ],
+    [
+      { id: 'evaluations', label: 'Feedback and Evaluation', icon: ClipboardCheck },
+      { id: 'reports', label: 'Reports & Export', icon: BarChart3 },
+    ],
+  ];
+  const currentTabs = tabGroups.find((group) => group.some((tab) => tab.id === activeSubTab)) ?? [];
+
+  const summaryByTab: Record<OrganizerSubTab, SummaryCard[]> = {
+    dashboard: [
+      { label: 'My Created Events', value: events.length, hint: `${approvedEvents.length} Approved by Dean` },
+      { label: 'Total Registrations', value: totalRegistrations, tone: 'gold' },
+      { label: 'Confirmed Present', value: totalAttended, tone: 'green', hint: `${overallAttendanceRate}% Overall Turnout` },
+      { label: 'Evaluations Submitted', value: totalEvaluations, tone: 'gold' },
+    ],
+    events: [
+      { label: 'My Events', value: events.length },
+      { label: 'Upcoming', value: events.filter((e) => e.event_date >= today).length, tone: 'gold' },
+      { label: 'Total Capacity', value: totalCapacity, tone: 'green', hint: 'Seats across approved events' },
+    ],
+    status: [
+      { label: 'Approved', value: approvedEvents.length, tone: 'green' },
+      { label: 'Pending Review', value: events.filter((e) => e.approval_status === 'pending').length, tone: 'gold' },
+      { label: 'Rejected', value: events.filter((e) => e.approval_status === 'rejected').length },
+      { label: 'Evaluation Open', value: events.filter((e) => e.is_active === 1).length, tone: 'green' },
+    ],
+    registrations: [
+      { label: 'Total Registrations', value: totalRegistrations },
+      { label: 'Seats Remaining', value: Math.max(totalCapacity - approvedRegistrations, 0), tone: 'green' },
+      {
+        label: 'Fill Rate',
+        value: `${totalCapacity > 0 ? Math.round((approvedRegistrations / totalCapacity) * 100) : 0}%`,
+        tone: 'gold',
+        hint: 'Registrations vs capacity',
+      },
+    ],
+    attendance: [
+      { label: 'Confirmed Present', value: totalAttended, tone: 'green' },
+      { label: 'Not Checked In', value: totalRegistrations - totalAttended, tone: 'gold' },
+      { label: 'Turnout Rate', value: `${overallAttendanceRate}%` },
+    ],
+    evaluations: [
+      { label: 'Evaluations Submitted', value: totalEvaluations },
+      { label: 'Events With Feedback', value: events.filter((e) => e.evaluation_count > 0).length, tone: 'green' },
+      { label: 'Evaluation Open', value: events.filter((e) => e.is_active === 1).length, tone: 'gold' },
+    ],
+    reports: [
+      { label: 'Reportable Events', value: approvedEvents.length, hint: 'Approved events' },
+      { label: 'Participants Served', value: totalAttended, tone: 'green' },
+      { label: 'Response Rate', value: `${evaluationResponseRate}%`, tone: 'gold', hint: 'Evaluations per attendee' },
+    ],
+  };
+
   const filteredRegistrations = registrations.filter((r) => {
     if (!regSearchQuery.trim()) return true;
     const q = regSearchQuery.toLowerCase();
@@ -258,123 +329,9 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
         </div>
       )}
 
-      {/* Solid Green KPI Rectangles matching screenshot */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-5 rounded-2xl border border-[#02681E] shadow-sm">
-          <span className="text-[11px] font-black text-emerald-200 uppercase tracking-wider block mb-1">
-            My Created Events
-          </span>
-          <span className="text-3xl font-black font-sans-cmu text-white tabular-nums">
-            {events.length}
-          </span>
-          <span className="text-[10px] text-emerald-300/80 block mt-1">
-            {events.filter((e) => e.approval_status === 'approved').length} Approved by Dean
-          </span>
-        </div>
+      <SummaryCards cards={summaryByTab[activeSubTab]} />
 
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-5 rounded-2xl border border-[#02681E] shadow-sm">
-          <span className="text-[11px] font-black text-emerald-200 uppercase tracking-wider block mb-1">
-            Total Registrations
-          </span>
-          <span className="text-3xl font-black font-sans-cmu text-[#FFC600] tabular-nums">
-            {totalRegistrations}
-          </span>
-          <span className="text-[10px] text-emerald-300/80 block mt-1">
-            Central Mindanao University
-          </span>
-        </div>
-
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-5 rounded-2xl border border-[#02681E] shadow-sm">
-          <span className="text-[11px] font-black text-emerald-200 uppercase tracking-wider block mb-1">
-            Confirmed Present
-          </span>
-          <span className="text-3xl font-black font-sans-cmu text-emerald-400 tabular-nums">
-            {totalAttended}
-          </span>
-          <span className="text-[10px] text-emerald-300/80 block mt-1">
-            {overallAttendanceRate}% Overall Turnout
-          </span>
-        </div>
-
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-5 rounded-2xl border border-[#02681E] shadow-sm">
-          <span className="text-[11px] font-black text-emerald-200 uppercase tracking-wider block mb-1">
-            Evaluations Submitted
-          </span>
-          <span className="text-3xl font-black font-sans-cmu text-amber-300 tabular-nums">
-            {totalEvaluations}
-          </span>
-          <span className="text-[10px] text-emerald-300/80 block mt-1">
-            Rubric Responses
-          </span>
-        </div>
-      </div>
-
-      {/* Sub-module Navigation Bar */}
-      <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-stone-100 rounded-xl border border-stone-200 text-xs font-bold">
-        <button
-          onClick={() => setActiveSubTab('dashboard')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'dashboard' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <LayoutDashboard size={14} />
-          Dashboard
-        </button>
-        <button
-          onClick={() => setActiveSubTab('events')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'events' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <Calendar size={14} />
-          Event Management ({events.length})
-        </button>
-        <button
-          onClick={() => setActiveSubTab('registrations')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'registrations' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <Users size={14} />
-          Registration Management
-        </button>
-        <button
-          onClick={() => setActiveSubTab('attendance')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'attendance' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <UserCheck size={14} />
-          Attendance Management
-        </button>
-        <button
-          onClick={() => setActiveSubTab('status')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'status' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <ListFilter size={14} />
-          Event Status
-        </button>
-        <button
-          onClick={() => setActiveSubTab('evaluations')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'evaluations' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <ClipboardCheck size={14} />
-          Feedback and Evaluation
-        </button>
-        <button
-          onClick={() => setActiveSubTab('reports')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'reports' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <BarChart3 size={14} />
-          Reports & Export
-        </button>
-      </div>
+      <SubTabBar tabs={currentTabs} active={activeSubTab} onChange={setActiveSubTab} />
 
       {/* 1. MODULE: DASHBOARD */}
       {activeSubTab === 'dashboard' && (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { EventItem, SurveySection, User, AdminDashboardStats } from '../types';
+import { EventItem, SurveySection, User } from '../types';
 import {
   Users,
   ShieldCheck,
@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { EvaluationReportView } from './EvaluationReportView';
+import { SummaryCards, SummaryCard, SubTabBar, SubTab } from './SummaryCards';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -36,7 +37,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     'dashboard' | 'users' | 'approval' | 'events' | 'surveys' | 'eval-reports' | 'reg-reports'
   >(initialSubTab);
 
-  const [stats, setStats] = useState<AdminDashboardStats | null>(null);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [sections, setSections] = useState<SurveySection[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -72,13 +72,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const [statsData, eventsData, sectionsData, usersData] = await Promise.all([
-        api.getAdminStats(),
+      const [eventsData, sectionsData, usersData] = await Promise.all([
         api.getEvents({ all: true }),
         api.getSurveySections(),
         api.getUsers(),
       ]);
-      setStats(statsData);
       setEvents(eventsData);
       setSections(sectionsData);
       setUsers(usersData);
@@ -226,6 +224,73 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   return (
     <div className="space-y-6">
+
+  type AdminSubTab = typeof activeSubTab;
+  const today = new Date().toISOString().slice(0, 10);
+  const totalRegistrations = events.reduce((acc, e) => acc + e.registered_count, 0);
+  const totalAttended = events.reduce((acc, e) => acc + e.attended_count, 0);
+  const totalEvaluations = events.reduce((acc, e) => acc + e.evaluation_count, 0);
+  const allQuestions = sections.flatMap((sec) => sec.questions);
+
+  // Sibling pages of each sidebar dropdown; only the current group's tabs are shown
+  const tabGroups: SubTab<AdminSubTab>[][] = [
+    [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }],
+    [{ id: 'users', label: 'User Management', icon: Users }],
+    [
+      { id: 'approval', label: `Event Approval (${pendingEvents.length})`, icon: ShieldCheck },
+      { id: 'events', label: `Event Management (${events.length})`, icon: Calendar },
+      { id: 'surveys', label: 'Survey Management', icon: ClipboardCheck },
+    ],
+    [
+      { id: 'eval-reports', label: 'Evaluation Reports', icon: BarChart3 },
+      { id: 'reg-reports', label: 'Registration Reports', icon: FileText },
+    ],
+  ];
+  const currentTabs = tabGroups.find((group) => group.some((tab) => tab.id === activeSubTab)) ?? [];
+
+  const summaryByTab: Record<AdminSubTab, SummaryCard[]> = {
+    dashboard: [
+      { label: 'Total Events', value: events.length },
+      { label: 'Pending Review', value: pendingEvents.length, tone: 'gold' },
+      { label: 'Active Evaluation', value: events.filter((e) => e.is_active === 1).length, tone: 'green' },
+    ],
+    users: [
+      { label: 'Total Users', value: users.length },
+      { label: 'Students', value: users.filter((u) => u.role === 'student').length, tone: 'green' },
+      { label: 'Organizers', value: users.filter((u) => u.role === 'organizer').length },
+      { label: 'Inactive Accounts', value: users.filter((u) => u.status === 'inactive').length, tone: 'gold' },
+    ],
+    approval: [
+      { label: 'Pending Review', value: pendingEvents.length, tone: 'gold', hint: 'Awaiting your decision' },
+      { label: 'Approved', value: events.filter((e) => e.approval_status === 'approved').length, tone: 'green' },
+      { label: 'Rejected', value: events.filter((e) => e.approval_status === 'rejected').length },
+    ],
+    events: [
+      { label: 'Total Events', value: events.length },
+      { label: 'Upcoming', value: events.filter((e) => e.event_date >= today).length, tone: 'gold' },
+      { label: 'Evaluation Open', value: events.filter((e) => e.is_active === 1).length, tone: 'green' },
+    ],
+    surveys: [
+      { label: 'Survey Sections', value: sections.length },
+      { label: 'Total Questions', value: allQuestions.length, tone: 'gold' },
+      { label: 'Required Questions', value: allQuestions.filter((q) => q.is_required).length, tone: 'green' },
+    ],
+    'eval-reports': [
+      { label: 'Evaluations Submitted', value: totalEvaluations },
+      { label: 'Events With Feedback', value: events.filter((e) => e.evaluation_count > 0).length, tone: 'green' },
+      {
+        label: 'Response Rate',
+        value: `${totalAttended > 0 ? Math.round((totalEvaluations / totalAttended) * 100) : 0}%`,
+        tone: 'gold',
+        hint: 'Evaluations per attendee',
+      },
+    ],
+    'reg-reports': [
+      { label: 'Total Registrations', value: totalRegistrations },
+      { label: 'Confirmed Present', value: totalAttended, tone: 'green' },
+      { label: 'Not Checked In', value: totalRegistrations - totalAttended, tone: 'gold' },
+    ],
+  };
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 pb-4">
         <div>
@@ -259,119 +324,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* KPI Overview Strip (Green Rectangles) */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-4 rounded-2xl border border-[#02681E] shadow-sm">
-            <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wider block">Total Events</span>
-            <span className="text-2xl font-black font-sans-cmu text-white tabular-nums mt-1 block">
-              {stats.total_events}
-            </span>
-          </div>
+      <SummaryCards cards={summaryByTab[activeSubTab]} />
 
-          <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-4 rounded-2xl border border-[#02681E] shadow-sm">
-            <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wider block">Pending Review</span>
-            <span className="text-2xl font-black font-sans-cmu text-amber-300 tabular-nums mt-1 block">
-              {stats.pending_approvals}
-            </span>
-          </div>
-
-          <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-4 rounded-2xl border border-[#02681E] shadow-sm">
-            <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wider block">Active Evaluation</span>
-            <span className="text-2xl font-black font-sans-cmu text-emerald-400 tabular-nums mt-1 block">
-              {stats.active_evaluation_events}
-            </span>
-          </div>
-
-          <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-4 rounded-2xl border border-[#02681E] shadow-sm">
-            <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wider block">Registrations</span>
-            <span className="text-2xl font-black font-sans-cmu text-white tabular-nums mt-1 block">
-              {stats.total_registrations}
-            </span>
-          </div>
-
-          <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-4 rounded-2xl border border-[#02681E] shadow-sm">
-            <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wider block">Attendance Rate</span>
-            <span className="text-2xl font-black font-sans-cmu text-[#FFC600] tabular-nums mt-1 block">
-              {stats.attendance_rate_percent}%
-            </span>
-          </div>
-
-          <div className="relative overflow-hidden bg-gradient-to-br from-[#00491E] via-[#013f19] to-[#002f12] text-white p-4 rounded-2xl border border-[#02681E] shadow-sm">
-            <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wider block">Satisfaction</span>
-            <span className="text-2xl font-black font-sans-cmu text-white tabular-nums mt-1 block">
-              {stats.overall_satisfaction_score.toFixed(2)}/5
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Sub-module navigation tabs */}
-      <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-stone-100 rounded-xl border border-stone-200 text-xs font-bold">
-        <button
-          onClick={() => setActiveSubTab('dashboard')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'dashboard' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <LayoutDashboard size={14} />
-          Dashboard
-        </button>
-        <button
-          onClick={() => setActiveSubTab('users')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'users' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <Users size={14} />
-          User Management ({users.length})
-        </button>
-        <button
-          onClick={() => setActiveSubTab('approval')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'approval' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <ShieldCheck size={14} />
-          Event Approval ({pendingEvents.length})
-        </button>
-        <button
-          onClick={() => setActiveSubTab('events')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'events' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <Calendar size={14} />
-          Event Management ({events.length})
-        </button>
-        <button
-          onClick={() => setActiveSubTab('surveys')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'surveys' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <ClipboardCheck size={14} />
-          Survey Management
-        </button>
-        <button
-          onClick={() => setActiveSubTab('eval-reports')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'eval-reports' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <BarChart3 size={14} />
-          Evaluation Reports
-        </button>
-        <button
-          onClick={() => setActiveSubTab('reg-reports')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'reg-reports' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <FileText size={14} />
-          Registration Reports
-        </button>
-      </div>
+      <SubTabBar tabs={currentTabs} active={activeSubTab} onChange={setActiveSubTab} />
 
       {/* 0. MODULE: DASHBOARD */}
       {activeSubTab === 'dashboard' && (

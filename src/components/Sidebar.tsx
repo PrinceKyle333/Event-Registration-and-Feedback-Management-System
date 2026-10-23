@@ -100,7 +100,7 @@ const NAV_BY_ROLE: Record<string, NavEntry[]> = {
       label: 'MY EVENTS',
       icon: Ticket,
       children: [
-        { id: 'stu-registrations', label: 'MY REGISTRATIONS', icon: Users },
+        { id: 'stu-my-registrations', label: 'MY REGISTRATIONS', icon: Users },
         { id: 'stu-attendance', label: 'ATTENDANCE STATUS', icon: CheckCircle2 },
       ],
     },
