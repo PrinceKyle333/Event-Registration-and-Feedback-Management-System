@@ -19,6 +19,7 @@ import {
   History,
   MessageSquareText,
   Ticket,
+  ScrollText,
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -43,6 +44,7 @@ const NAV_BY_ROLE: Record<string, NavEntry[]> = {
   admin: [
     { id: 'admin-dashboard', label: 'DASHBOARD', icon: LayoutDashboard },
     { id: 'admin-users', label: 'USER MANAGEMENT', icon: Users },
+    { id: 'admin-logs', label: 'ACTIVITY LOGS', icon: ScrollText },
     {
       key: 'admin-events-group',
       label: 'EVENTS',

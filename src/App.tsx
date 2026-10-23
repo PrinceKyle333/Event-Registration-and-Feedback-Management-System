@@ -14,6 +14,7 @@ import { SurveyFormModal } from './components/SurveyFormModal';
 import { AttendanceRosterModal } from './components/AttendanceRosterModal';
 import { EvaluationReportView } from './components/EvaluationReportView';
 import { AdminPanel } from './components/AdminPanel';
+import { ActivityLogView } from './components/ActivityLogView';
 import { OrganizerPanel } from './components/OrganizerPanel';
 import { StudentRegistrationsView } from './components/StudentRegistrationsView';
 import { StudentPortal } from './components/StudentPortal';
@@ -242,7 +243,9 @@ export default function App() {
           )}
 
           {/* 3. ADMIN MODULES */}
-          {activeModule.startsWith('admin-') && activeModule !== 'admin-dashboard' && (
+          {activeModule === 'admin-logs' && <ActivityLogView />}
+
+          {activeModule.startsWith('admin-') && activeModule !== 'admin-dashboard' && activeModule !== 'admin-logs' && (
             <AdminPanel
               currentUser={currentUser!}
               initialSubTab={activeModule.replace('admin-', '') as any}
