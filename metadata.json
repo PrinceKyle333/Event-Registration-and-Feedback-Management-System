@@ -1,0 +1,6 @@
+{
+  "name": "CMU Event Registration & Evaluation System",
+  "description": "Central Mindanao University Event Registration and Feedback Management System with REST API Integration for BSIT 4B SIA project.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
