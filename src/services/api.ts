@@ -9,7 +9,7 @@ import {
   EventReportRow,
 } from '../types';
 
-let currentUserId: number | null = 3; // Default to Prince Kyle Christian (student1) for instant testability
+let currentUserId: number | null = null; // set after login
 
 export const setAuthUserId = (id: number | null) => {
   currentUserId = id;

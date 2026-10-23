@@ -19,8 +19,14 @@ import { OrganizerPanel } from './components/OrganizerPanel';
 import { StudentRegistrationsView } from './components/StudentRegistrationsView';
 import { StudentPortal } from './components/StudentPortal';
 import { LoginModal } from './components/LoginModal';
+import { LandingPage } from './components/LandingPage';
 import { api, setAuthUserId } from './services/api';
 import { EventItem, User, Registration, AdminDashboardStats } from './types';
+
+const SESSION_KEY = 'cmu-event-session';
+
+const homeModuleFor = (role: User['role']) =>
+  role === 'admin' ? 'admin-dashboard' : role === 'organizer' ? 'org-dashboard' : 'stu-listing';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -53,21 +59,43 @@ export default function App() {
   const initApp = async () => {
     setLoading(true);
     try {
-      // Default to Admin session (Maria Dela Cruz / Engr. Juan Dela Cruz) to match screenshot
-      const userRes = await api.login('admin', 'admin123');
-      setCurrentUser(userRes.user);
-      setAuthUserId(userRes.user.user_id);
-
-      await Promise.all([
-        loadEvents(),
-        loadStats(),
-        loadUserRegistrations(userRes.user.user_id),
-      ]);
-    } catch (e: any) {
-      console.error('Initial login fallback:', e);
+      // Restore the previous session so a page refresh keeps you signed in; otherwise show the landing page
+      let savedId: number | null = null;
+      try {
+        savedId = Number(localStorage.getItem(SESSION_KEY)) || null;
+      } catch {
+        savedId = null;
+      }
+      if (savedId) {
+        setAuthUserId(savedId);
+        const user = await api.getCurrentUser();
+        if (user && user.status !== 'inactive') {
+          startSession(user);
+          return;
+        }
+        setAuthUserId(null);
+      }
       loadEvents();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startSession = (user: User, notice?: string) => {
+    setCurrentUser(user);
+    setAuthUserId(user.user_id);
+    try {
+      localStorage.setItem(SESSION_KEY, String(user.user_id));
+    } catch {
+      /* session just won't survive a refresh */
+    }
+    setActiveModule(homeModuleFor(user.role));
+    loadUserRegistrations(user.user_id);
+    loadStats();
+    loadEvents();
+    if (notice) {
+      setBannerNotice(notice);
+      setTimeout(() => setBannerNotice(null), 3500);
     }
   };
 
@@ -102,22 +130,7 @@ export default function App() {
     try {
       const pwd = username === 'admin' ? 'admin123' : username === 'organizer1' ? 'organizer123' : 'student123';
       const res = await api.login(username, pwd);
-      setCurrentUser(res.user);
-      setAuthUserId(res.user.user_id);
-      loadUserRegistrations(res.user.user_id);
-      loadStats();
-      loadEvents();
-
-      setBannerNotice(`Operating Scope active: ${res.user.full_name} (${res.user.role.toUpperCase()})`);
-      setTimeout(() => setBannerNotice(null), 3500);
-
-      if (res.user.role === 'admin') {
-        setActiveModule('admin-dashboard');
-      } else if (res.user.role === 'organizer') {
-        setActiveModule('org-dashboard');
-      } else {
-        setActiveModule('stu-listing');
-      }
+      startSession(res.user, `Signed in as ${res.user.full_name} (${res.user.role.toUpperCase()})`);
     } catch (err: any) {
       alert('Failed to switch role: ' + err.message);
     }
@@ -127,7 +140,11 @@ export default function App() {
     setCurrentUser(null);
     setAuthUserId(null);
     setMyRegistrations([]);
-    setIsLoginOpen(true);
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* nothing stored */
+    }
   };
 
   const handleRegister = async (eventId: number) => {
@@ -192,6 +209,21 @@ export default function App() {
     }
     return true;
   });
+
+  // Signed-out visitors see the public landing page
+  if (!currentUser) {
+    if (loading) return <div className="min-h-screen bg-[#EEF2F6]" />;
+    return (
+      <>
+        <LandingPage onSignIn={() => setIsLoginOpen(true)} onQuickLogin={handleSwitchUser} />
+        <LoginModal
+          isOpen={isLoginOpen}
+          onClose={() => setIsLoginOpen(false)}
+          onLoginSuccess={(u) => startSession(u, `Welcome, ${u.full_name}`)}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen flex bg-[#EEF2F6] font-sans-cmu text-stone-800 antialiased selection:bg-[#FFC600] selection:text-stone-950">
@@ -403,15 +435,7 @@ export default function App() {
       <LoginModal
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
-        onLoginSuccess={(u) => {
-          setCurrentUser(u);
-          setAuthUserId(u.user_id);
-          loadUserRegistrations(u.user_id);
-          loadStats();
-          loadEvents();
-          setBannerNotice(`Welcome back, ${u.full_name} (${u.role})`);
-          setTimeout(() => setBannerNotice(null), 3000);
-        }}
+        onLoginSuccess={(u) => startSession(u, `Welcome back, ${u.full_name}`)}
       />
 
       <EventDetailsModal
