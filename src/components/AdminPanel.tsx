@@ -44,6 +44,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  // Event approval status filter
+  const [approvalFilter, setApprovalFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
+
   // New question form state
   const [selectedSectionId, setSelectedSectionId] = useState<number>(1);
   const [newQuestionText, setNewQuestionText] = useState('');
@@ -221,9 +224,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const pendingEvents = events.filter((e) => e.approval_status === 'pending');
-
-  return (
-    <div className="space-y-6">
+  const approvalEvents = events.filter((e) => e.approval_status === approvalFilter);
 
   type AdminSubTab = typeof activeSubTab;
   const today = new Date().toISOString().slice(0, 10);
@@ -291,6 +292,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       { label: 'Not Checked In', value: totalRegistrations - totalAttended, tone: 'gold' },
     ],
   };
+
+  return (
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 pb-4">
         <div>
@@ -579,51 +583,101 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </p>
           </div>
 
-          {pendingEvents.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-stone-100 rounded-xl border border-stone-200 text-xs font-bold w-fit">
+            {(['pending', 'approved', 'rejected'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setApprovalFilter(status)}
+                className={`px-3 py-1.5 rounded-lg transition-all capitalize ${
+                  approvalFilter === status ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {status} ({events.filter((e) => e.approval_status === status).length})
+              </button>
+            ))}
+          </div>
+
+          {approvalEvents.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-2xl border border-stone-200 text-xs text-stone-500">
-              No pending event proposals requiring review. All submitted events have been evaluated.
+              {approvalFilter === 'pending'
+                ? 'No pending event proposals requiring review.'
+                : `No ${approvalFilter} events yet.`}
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingEvents.map((pe) => (
+              {approvalEvents.map((pe) => (
                 <div
                   key={pe.event_id}
-                  className="p-5 bg-white rounded-2xl border border-amber-300 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  className={`p-5 bg-white rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                    pe.approval_status === 'pending'
+                      ? 'border-amber-300'
+                      : pe.approval_status === 'approved'
+                      ? 'border-emerald-200'
+                      : 'border-rose-200'
+                  }`}
                 >
-                  <div className="space-y-1 flex-1">
-                    <span className="text-[10px] font-black uppercase text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                      Pending Review
-                    </span>
+                  <div className="space-y-1 flex-1 min-w-0">
+                    {pe.approval_status === 'pending' && (
+                      <span className="whitespace-nowrap text-[10px] font-black uppercase text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                        Pending Review
+                      </span>
+                    )}
+                    {pe.approval_status === 'approved' && (
+                      <span className="whitespace-nowrap text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                        Approved
+                      </span>
+                    )}
+                    {pe.approval_status === 'rejected' && (
+                      <span className="whitespace-nowrap text-[10px] font-black uppercase text-rose-700 bg-rose-50 px-2 py-0.5 rounded">
+                        Rejected
+                      </span>
+                    )}
                     <h4 className="text-base font-bold font-serif-cmu text-stone-900 mt-1">
                       {pe.event_name}
                     </h4>
                     <div className="text-xs text-stone-500 flex flex-wrap gap-x-3 gap-y-1">
+                      <span>Organizer: <strong>{pe.organizer_name}</strong></span>
+                      <span>·</span>
                       <span>Department: <strong>{pe.department}</strong></span>
                       <span>·</span>
                       <span>Venue: <strong>{pe.venue}</strong></span>
                       <span>·</span>
                       <span>Date: <strong>{pe.event_date}</strong></span>
                       <span>·</span>
-                      <span>Capacity: <strong>{pe.capacity} attendees</strong></span>
+                      <span>
+                        {pe.approval_status === 'approved' ? 'Registered' : 'Capacity'}:{' '}
+                        <strong>
+                          {pe.approval_status === 'approved' ? `${pe.registered_count} / ${pe.capacity}` : `${pe.capacity} attendees`}
+                        </strong>
+                      </span>
                     </div>
+                    {pe.approval_status === 'rejected' && pe.rejection_reason && (
+                      <p className="text-xs text-rose-700 bg-rose-50 rounded-lg px-3 py-2 mt-2">
+                        <strong>Reason:</strong> {pe.rejection_reason}
+                      </p>
+                    )}
                     <p className="text-xs text-stone-600 mt-2 line-clamp-2">
                       {pe.description}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleReject(pe.event_id)}
-                      className="px-4 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200"
-                    >
-                      Reject Proposal
-                    </button>
-                    <button
-                      onClick={() => handleApprove(pe.event_id)}
-                      className="px-5 py-2 text-xs font-bold text-white bg-[#00491E] hover:bg-[#02681E] rounded-xl shadow-xs"
-                    >
-                      Approve & Publish
-                    </button>
+                    {pe.approval_status !== 'rejected' && (
+                      <button
+                        onClick={() => handleReject(pe.event_id)}
+                        className="px-4 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200"
+                      >
+                        {pe.approval_status === 'approved' ? 'Revoke Approval' : 'Reject Proposal'}
+                      </button>
+                    )}
+                    {pe.approval_status !== 'approved' && (
+                      <button
+                        onClick={() => handleApprove(pe.event_id)}
+                        className="px-5 py-2 text-xs font-bold text-white bg-[#00491E] hover:bg-[#02681E] rounded-xl shadow-xs"
+                      >
+                        {pe.approval_status === 'rejected' ? 'Reconsider & Approve' : 'Approve & Publish'}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

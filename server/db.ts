@@ -1068,9 +1068,8 @@ class DatabaseEngine {
     evt.approval_status = status;
     evt.admin_id = adminId;
     evt.rejection_reason = status === 'rejected' ? (rejection_reason || 'Does not meet university event guidelines') : null;
-    if (status === 'approved') {
-      evt.is_active = 1; // default to active when approved
-    }
+    // Approved events open for evaluation by default; rejected (or revoked) ones close it
+    evt.is_active = status === 'approved' ? 1 : 0;
     evt.updated_at = new Date().toISOString();
     this.save();
     return evt;
