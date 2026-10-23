@@ -216,6 +216,96 @@ class DatabaseEngine {
       },
     ];
 
+    // --- Demo population helpers (seeded PRNG so every reset yields the same data) ---
+    const SEED_TODAY = '2026-10-23';
+    let seedState = 20261023;
+    const rand = () => {
+      seedState = (seedState + 0x6d2b79f5) | 0;
+      let t = Math.imul(seedState ^ (seedState >>> 15), 1 | seedState);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const randInt = (min: number, max: number) => min + Math.floor(rand() * (max - min + 1));
+    const shuffle = <T>(arr: T[]): T[] => {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const shiftDate = (date: string, days: number) => {
+      const d = new Date(`${date}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+
+    users.push(
+      {
+        user_id: 6,
+        username: 'organizer2',
+        password: hash('organizer123'),
+        full_name: 'Dr. Ramon Villanueva',
+        email: 'ramon.villanueva@cmu.edu.ph',
+        role: 'organizer',
+        college_department: 'College of Agriculture',
+        created_at: now,
+      },
+      {
+        user_id: 7,
+        username: 'organizer3',
+        password: hash('organizer123'),
+        full_name: 'Prof. Liza Mae Gonzales',
+        email: 'lizamae.gonzales@cmu.edu.ph',
+        role: 'organizer',
+        college_department: 'College of Arts and Sciences',
+        created_at: now,
+      }
+    );
+
+    const studentHash = hash('student123');
+    const firstNames = [
+      'Mary Grace', 'John Paul', 'Kristine', 'Mark Anthony', 'Angelica', 'Christian', 'Jasmine', 'Rodel',
+      'Patricia', 'Jerome', 'Bea', 'Carlo', 'Danica', 'Emmanuel', 'Hazel', 'Kenneth', 'Lovely', 'Nathaniel',
+      'Rhea', 'Vincent',
+    ];
+    const lastNames = [
+      'Dela Cruz', 'Bautista', 'Mendoza', 'Garcia', 'Torres', 'Navarro', 'Aquino', 'Castillo', 'Villanueva',
+      'Santiago', 'Pascual', 'Domingo', 'Salazar', 'Cabrera', 'Manalo', 'Ocampo', 'Lumbre', 'Sumagang',
+      'Tagalog', 'Ybañez', 'Dagohoy',
+    ];
+    const studentDepts = [
+      { name: 'BSIT 4B', code: 'BSIT' },
+      { name: 'BSIT 3A', code: 'BSIT' },
+      { name: 'BS Computer Science 4A', code: 'BSCS' },
+      { name: 'BS Agriculture 3B', code: 'BSA' },
+      { name: 'BS Secondary Education 2A', code: 'BSED' },
+      { name: 'BS Nursing 3A', code: 'BSN' },
+      { name: 'BS Civil Engineering 4A', code: 'BSCE' },
+    ];
+    const generatedStudentIds: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      // (i % 20, i % 21) never repeats for i < 420, so names stay unique
+      const first = firstNames[i % firstNames.length];
+      const last = lastNames[i % lastNames.length];
+      const dept = studentDepts[i % studentDepts.length];
+      const userId = 8 + i;
+      generatedStudentIds.push(userId);
+      users.push({
+        user_id: userId,
+        username: `student${i + 4}`,
+        password: studentHash,
+        full_name: `${first} ${last}`,
+        email: `${first}.${last}@cmu.edu.ph`.toLowerCase().replace(/ñ/g, 'n').replace(/\s+/g, ''),
+        role: 'student',
+        student_id: `20${22 + (i % 4)}-${dept.code}-${String(500 + i).padStart(4, '0')}`,
+        college_department: dept.name,
+        status: i % 17 === 16 ? 'inactive' : 'active',
+        created_at: now,
+      });
+    }
+
     const admins: Admin[] = [
       {
         admin_id: 1,
@@ -371,6 +461,206 @@ class DatabaseEngine {
       },
     ];
 
+    // Additional events covering every lifecycle state: completed, upcoming, pending, rejected
+    type ExtraEvent = Pick<
+      EventItem,
+      'event_name' | 'event_date' | 'department' | 'description' | 'venue' | 'start_time' | 'end_time' | 'capacity' | 'organizer_id' | 'approval_status' | 'is_active'
+    > & { rejection_reason?: string };
+
+    const extraEvents: ExtraEvent[] = [
+      // 5-10: completed events
+      {
+        event_name: 'Freshmen Orientation & Campus Tour 2026',
+        event_date: '2026-08-12',
+        department: 'Office of Student Affairs',
+        description: 'Welcome program for incoming first-year students covering university policies, student services, and a guided tour of the CMU campus.',
+        venue: 'CMU Grandstand',
+        start_time: '08:00:00',
+        end_time: '15:00:00',
+        capacity: 300,
+        organizer_id: 2,
+        approval_status: 'approved',
+        is_active: 0,
+      },
+      {
+        event_name: 'Research Ethics and Data Privacy Seminar',
+        event_date: '2026-09-03',
+        department: 'College of Arts and Sciences',
+        description: 'Seminar on responsible research conduct, informed consent, and compliance with the Data Privacy Act of 2012 for student researchers.',
+        venue: 'CAS Function Hall',
+        start_time: '13:00:00',
+        end_time: '17:00:00',
+        capacity: 80,
+        organizer_id: 7,
+        approval_status: 'approved',
+        is_active: 1,
+      },
+      {
+        event_name: 'Organic Farming Field Demonstration',
+        event_date: '2026-09-18',
+        department: 'College of Agriculture',
+        description: 'Hands-on demonstration of vermicomposting, natural pest control, and organic vegetable production at the university demo farm.',
+        venue: 'CMU Organic Demo Farm',
+        start_time: '07:30:00',
+        end_time: '12:00:00',
+        capacity: 60,
+        organizer_id: 6,
+        approval_status: 'approved',
+        is_active: 1,
+      },
+      {
+        event_name: 'Web Development Bootcamp: React & REST APIs',
+        event_date: '2026-09-26',
+        department: 'College of Information Sciences and Computing',
+        description: 'Full-day bootcamp building a React front end connected to a REST API, covering components, state management, and API integration.',
+        venue: 'CISC Computer Laboratory 1',
+        start_time: '08:00:00',
+        end_time: '17:00:00',
+        capacity: 45,
+        organizer_id: 2,
+        approval_status: 'approved',
+        is_active: 1,
+      },
+      {
+        event_name: 'Mental Health Awareness Forum',
+        event_date: '2026-10-08',
+        department: 'Guidance and Counseling Office',
+        description: 'Open forum with licensed counselors on stress management, academic burnout, and available university wellness services.',
+        venue: 'University Audio-Visual Center',
+        start_time: '09:00:00',
+        end_time: '12:00:00',
+        capacity: 150,
+        organizer_id: 7,
+        approval_status: 'approved',
+        is_active: 1,
+      },
+      {
+        event_name: 'Inter-College Quiz Bee 2026',
+        event_date: '2026-10-15',
+        department: 'College of Education',
+        description: 'Annual academic quiz competition between college representatives covering science, mathematics, history, and current events.',
+        venue: 'College of Education Gymnasium',
+        start_time: '13:00:00',
+        end_time: '17:00:00',
+        capacity: 200,
+        organizer_id: 6,
+        approval_status: 'approved',
+        is_active: 1,
+      },
+      // 11-13: upcoming approved events
+      {
+        event_name: 'Cybersecurity Awareness Workshop',
+        event_date: '2026-11-12',
+        department: 'College of Information Sciences and Computing',
+        description: 'Workshop on phishing detection, password hygiene, and securing personal devices and university accounts.',
+        venue: 'CISC Multimedia Laboratory 2',
+        start_time: '13:00:00',
+        end_time: '16:30:00',
+        capacity: 60,
+        organizer_id: 2,
+        approval_status: 'approved',
+        is_active: 0,
+      },
+      {
+        event_name: 'CMU Foundation Day Cultural Night',
+        event_date: '2026-11-20',
+        department: 'Office of Student Affairs',
+        description: 'Evening celebration of the university founding anniversary featuring cultural dance troupes, choir performances, and student band showcases.',
+        venue: 'CMU University Convention Center - Main Hall',
+        start_time: '18:00:00',
+        end_time: '22:00:00',
+        capacity: 500,
+        organizer_id: 7,
+        approval_status: 'approved',
+        is_active: 0,
+      },
+      {
+        event_name: 'Sustainable Agriculture Research Congress',
+        event_date: '2026-12-03',
+        department: 'College of Agriculture',
+        description: 'Presentation of faculty and student research on climate-resilient crops, soil health, and smart farming technologies in Mindanao.',
+        venue: 'Farmers Training Center, CMU Campus',
+        start_time: '08:00:00',
+        end_time: '17:00:00',
+        capacity: 120,
+        organizer_id: 6,
+        approval_status: 'approved',
+        is_active: 0,
+      },
+      // 14-15: awaiting approval
+      {
+        event_name: 'Mobile App Development Hackathon',
+        event_date: '2026-12-10',
+        department: 'College of Information Sciences and Computing',
+        description: '24-hour team hackathon building mobile apps that solve campus problems, judged by industry partners.',
+        venue: 'CISC Building Lobby & Laboratories',
+        start_time: '08:00:00',
+        end_time: '20:00:00',
+        capacity: 90,
+        organizer_id: 2,
+        approval_status: 'pending',
+        is_active: 0,
+      },
+      {
+        event_name: 'Campus Clean-Up and Tree Planting Drive',
+        event_date: '2026-11-15',
+        department: 'Office of Student Affairs',
+        description: 'Community service activity cleaning campus waterways and planting native tree seedlings along the university perimeter.',
+        venue: 'CMU Main Gate Assembly Area',
+        start_time: '06:00:00',
+        end_time: '11:00:00',
+        capacity: 200,
+        organizer_id: 7,
+        approval_status: 'pending',
+        is_active: 0,
+      },
+      // 16-17: rejected proposals
+      {
+        event_name: 'Overnight LAN Gaming Tournament',
+        event_date: '2026-11-07',
+        department: 'College of Information Sciences and Computing',
+        description: 'Overnight esports tournament held in the computer laboratories with teams from different colleges.',
+        venue: 'CISC Computer Laboratories 1-3',
+        start_time: '18:00:00',
+        end_time: '23:59:00',
+        capacity: 64,
+        organizer_id: 2,
+        approval_status: 'rejected',
+        is_active: 0,
+        rejection_reason: 'Overnight activities inside campus facilities are not permitted under the student activities policy.',
+      },
+      {
+        event_name: 'Off-Campus Team Building Excursion',
+        event_date: '2026-11-28',
+        department: 'College of Arts and Sciences',
+        description: 'Two-day team building activity for student officers at a beach resort outside the province.',
+        venue: 'Off-campus (Camiguin Island)',
+        start_time: '06:00:00',
+        end_time: '18:00:00',
+        capacity: 40,
+        organizer_id: 7,
+        approval_status: 'rejected',
+        is_active: 0,
+        rejection_reason: 'Insufficient risk assessment and missing parental consent forms for off-campus travel.',
+      },
+    ];
+
+    extraEvents.forEach((evt, idx) => {
+      events.push({
+        ...evt,
+        event_id: 5 + idx,
+        registration_deadline: `${shiftDate(evt.event_date, -1)}T23:59:00`,
+        rejection_reason: evt.rejection_reason ?? null,
+        admin_id: evt.approval_status === 'pending' ? null : 1,
+        image_url:
+          idx % 2 === 0
+            ? '/src/assets/images/university_tech_summit_1792726541628.jpg'
+            : '/src/assets/images/cmu_campus_landmark_1792726540611.jpg',
+        created_at: now,
+        updated_at: now,
+      });
+    });
+
     // Seed registrations
     const registrations: Registration[] = [
       {
@@ -378,7 +668,7 @@ class DatabaseEngine {
         event_id: 1,
         user_id: 3, // Prince Kyle Christian Reston
         registered_at: '2026-10-18T10:00:00Z',
-        attendance_status: 'attended', // confirmed attendee!
+        attendance_status: 'attended', // confirmed attendee, evaluation left open for testing
         attended_at: '2026-10-20T08:25:00Z',
       },
       {
@@ -394,7 +684,7 @@ class DatabaseEngine {
         event_id: 1,
         user_id: 5, // Joshua Dave Flores
         registered_at: '2026-10-19T09:30:00Z',
-        attendance_status: 'registered', // registered but not attended yet
+        attendance_status: 'registered', // registered but not checked in
         attended_at: null,
       },
       {
@@ -407,8 +697,6 @@ class DatabaseEngine {
       },
     ];
 
-    // Seed evaluation for event 1 by student 4 (Alyssa)
-    // leaving student 3 (Prince Kyle) free to submit evaluation during testing!
     const evaluations: Evaluation[] = [
       {
         evaluation_id: 1,
@@ -420,13 +708,105 @@ class DatabaseEngine {
       },
     ];
 
-    // Seed responses for evaluation 1 (ratings 4 and 5)
     const evaluation_responses: EvaluationResponse[] = survey_questions.map((q, idx) => ({
       response_id: idx + 1,
       evaluation_id: 1,
       question_id: q.question_id,
       rating: [5, 4, 5, 4, 5, 5, 5, 4, 5, 4, 4, 4, 5, 4, 5, 5, 5, 4, 5, 5][idx % 20],
     }));
+
+    // Typical rating per completed event; individual answers vary around it
+    const eventQuality: Record<number, number> = { 1: 4.4, 5: 4.5, 6: 3.9, 7: 4.2, 8: 4.6, 9: 4.1, 10: 3.5 };
+    const commentPool = [
+      'Very informative and well organized. Looking forward to the next one!',
+      'The speakers were knowledgeable but the program started late.',
+      'Venue was too warm in the afternoon. Better ventilation please.',
+      'Snacks ran out before everyone was served.',
+      'I learned a lot of practical skills that I can apply to our projects.',
+      'Registration at the entrance was quick and smooth.',
+      'The sound system had issues at the back of the hall.',
+      'Great activity! More hands-on sessions would be appreciated.',
+      'Topics were relevant to our course. Thank you to the organizers.',
+      'Please provide more vegetarian food options next time.',
+      'The time allotted for open forum was too short.',
+      'Excellent facilitators, very approachable and helpful.',
+      'Handouts or slides should be shared with participants after the event.',
+      'One of the best university events I have attended this semester.',
+    ];
+
+    const addRegistration = (eventId: number, userId: number, status: Registration['attendance_status']) => {
+      const evt = events.find((e) => e.event_id === eventId)!;
+      let regDate = shiftDate(evt.event_date, -randInt(1, 12));
+      if (regDate >= SEED_TODAY) regDate = shiftDate(SEED_TODAY, -randInt(1, 5));
+      const reg: Registration = {
+        registration_id: registrations.length + 1,
+        event_id: eventId,
+        user_id: userId,
+        registered_at: `${regDate}T${pad(randInt(7, 21))}:${pad(randInt(0, 59))}:00Z`,
+        attendance_status: status,
+        attended_at: status === 'attended' ? `${evt.event_date}T${pad(randInt(7, 8))}:${pad(randInt(0, 59))}:00Z` : null,
+      };
+      registrations.push(reg);
+      return reg;
+    };
+
+    const addEvaluation = (reg: Registration) => {
+      const evt = events.find((e) => e.event_id === reg.event_id)!;
+      const quality = eventQuality[reg.event_id] ?? 4;
+      const evaluationId = evaluations.length + 1;
+      evaluations.push({
+        evaluation_id: evaluationId,
+        event_id: reg.event_id,
+        participant_id: reg.user_id,
+        registration_id: reg.registration_id,
+        submit_date: `${evt.event_date}T${pad(randInt(16, 21))}:${pad(randInt(0, 59))}:00Z`,
+        comments: rand() < 0.55 ? commentPool[Math.floor(rand() * commentPool.length)] : null,
+      });
+      for (const q of survey_questions) {
+        // Food tends to score lower, speakers slightly higher
+        const sectionBias = q.section_id === 3 ? -0.35 : q.section_id === 2 ? 0.15 : 0;
+        evaluation_responses.push({
+          response_id: evaluation_responses.length + 1,
+          evaluation_id: evaluationId,
+          question_id: q.question_id,
+          rating: Math.min(5, Math.max(1, Math.round(quality + sectionBias + (rand() - 0.5) * 2))),
+        });
+      }
+    };
+
+    // Demo accounts get a predictable history: [event, user, attendance, evaluated]
+    const demoHistory: [number, number, Registration['attendance_status'], boolean][] = [
+      [5, 3, 'attended', true],
+      [8, 3, 'attended', true],
+      [9, 3, 'attended', false], // open evaluation for testing
+      [11, 3, 'registered', false],
+      [12, 3, 'registered', false],
+      [6, 4, 'attended', true],
+      [8, 4, 'attended', true],
+      [3, 4, 'registered', false],
+      [7, 5, 'absent', false],
+      [10, 5, 'attended', true],
+      [2, 5, 'registered', false],
+    ];
+    for (const [eventId, userId, status, evaluated] of demoHistory) {
+      const reg = addRegistration(eventId, userId, status);
+      if (evaluated) addEvaluation(reg);
+    }
+
+    // Generated students fill the remaining seats
+    const registrationTargets: [number, number][] = [
+      [5, 34], [6, 22], [7, 18], [8, 30], [9, 26], [10, 20], [1, 20],
+      [2, 15], [3, 12], [11, 14], [12, 25], [13, 9],
+    ];
+    for (const [eventId, count] of registrationTargets) {
+      const evt = events.find((e) => e.event_id === eventId)!;
+      const isPast = evt.event_date < SEED_TODAY;
+      for (const userId of shuffle(generatedStudentIds).slice(0, count)) {
+        const status: Registration['attendance_status'] = isPast ? (rand() < 0.82 ? 'attended' : 'absent') : 'registered';
+        const reg = addRegistration(eventId, userId, status);
+        if (status === 'attended' && rand() < 0.7) addEvaluation(reg);
+      }
+    }
 
     this.state = {
       users,

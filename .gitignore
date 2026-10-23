@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Generated JSON database (rebuild with npm run db:reset)
+data/
