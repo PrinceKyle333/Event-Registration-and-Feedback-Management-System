@@ -13,6 +13,7 @@ export interface User {
   college_department?: string | null;
   status?: 'active' | 'inactive';
   last_login?: string | null;
+  notifications_seen_at?: string | null;
   created_at: string;
 }
 
@@ -96,6 +97,17 @@ export interface EvaluationResponse {
   rating: number; // 1 to 5
 }
 
+export interface ActivityLog {
+  log_id: number;
+  user_id: number | null; // actor; null for anonymous actions such as evaluations
+  actor_name: string;
+  action: string; // e.g. event_approved, attendance_marked
+  description: string;
+  event_id: number | null;
+  target_user_id: number | null; // user affected by the action, if any
+  created_at: string;
+}
+
 export interface DatabaseState {
   users: User[];
   admins: Admin[];
@@ -105,6 +117,7 @@ export interface DatabaseState {
   survey_questions: SurveyQuestion[];
   evaluations: Evaluation[];
   evaluation_responses: EvaluationResponse[];
+  activity_logs: ActivityLog[];
 }
 
 const DB_FILE = path.resolve(process.cwd(), 'data', 'database.json');
@@ -119,6 +132,7 @@ class DatabaseEngine {
     survey_questions: [],
     evaluations: [],
     evaluation_responses: [],
+    activity_logs: [],
   };
 
   constructor() {
@@ -143,6 +157,7 @@ class DatabaseEngine {
         if (!this.state.survey_questions) this.state.survey_questions = [];
         if (!this.state.evaluations) this.state.evaluations = [];
         if (!this.state.evaluation_responses) this.state.evaluation_responses = [];
+        if (!this.state.activity_logs) this.state.activity_logs = [];
       } catch (e) {
         console.error('Error reading db file, seeding fresh database:', e);
         this.seedInitialData();
@@ -808,6 +823,54 @@ class DatabaseEngine {
       }
     }
 
+    // Activity history so dashboards and notifications have something real to show
+    const activity_logs: ActivityLog[] = [];
+    const nameOf = (userId: number | null) => users.find((u) => u.user_id === userId)?.full_name ?? 'System';
+    const pushLog = (log: Omit<ActivityLog, 'log_id' | 'actor_name'>) =>
+      activity_logs.push({ ...log, log_id: activity_logs.length + 1, actor_name: log.user_id ? nameOf(log.user_id) : 'Anonymous participant' });
+
+    for (const evt of events) {
+      const proposedAt = `${shiftDate(evt.event_date < SEED_TODAY ? evt.event_date : SEED_TODAY, -randInt(20, 40))}T09:${pad(randInt(0, 59))}:00Z`;
+      pushLog({ user_id: evt.organizer_id, action: 'event_created', description: `Submitted event proposal "${evt.event_name}"`, event_id: evt.event_id, target_user_id: null, created_at: proposedAt });
+      if (evt.approval_status !== 'pending') {
+        const decidedAt = `${shiftDate(proposedAt.slice(0, 10), randInt(1, 4))}T14:${pad(randInt(0, 59))}:00Z`;
+        pushLog({
+          user_id: 1,
+          action: evt.approval_status === 'approved' ? 'event_approved' : 'event_rejected',
+          description: `${evt.approval_status === 'approved' ? 'Approved' : 'Rejected'} event "${evt.event_name}"`,
+          event_id: evt.event_id,
+          target_user_id: evt.organizer_id,
+          created_at: decidedAt,
+        });
+      }
+    }
+    for (const reg of registrations) {
+      const evt = events.find((e) => e.event_id === reg.event_id)!;
+      pushLog({ user_id: reg.user_id, action: 'event_registered', description: `Registered for "${evt.event_name}"`, event_id: evt.event_id, target_user_id: null, created_at: reg.registered_at });
+      if (reg.attendance_status !== 'registered') {
+        pushLog({
+          user_id: evt.organizer_id,
+          action: 'attendance_marked',
+          description: `Marked ${nameOf(reg.user_id)} as ${reg.attendance_status} at "${evt.event_name}"`,
+          event_id: evt.event_id,
+          target_user_id: reg.user_id,
+          created_at: reg.attended_at ?? `${evt.event_date}T12:00:00Z`,
+        });
+      }
+    }
+    for (const ev of evaluations) {
+      const evt = events.find((e) => e.event_id === ev.event_id)!;
+      pushLog({ user_id: null, action: 'evaluation_submitted', description: `Evaluation submitted for "${evt.event_name}"`, event_id: evt.event_id, target_user_id: null, created_at: ev.submit_date });
+    }
+    activity_logs.sort((a, b) => a.created_at.localeCompare(b.created_at)).forEach((log, idx) => (log.log_id = idx + 1));
+
+    // Recent sign-ins for the demo accounts and a handful of students
+    for (const user of users) {
+      if (user.user_id <= 7 || rand() < 0.35) {
+        user.last_login = `${shiftDate(SEED_TODAY, -randInt(0, 6))}T${pad(randInt(7, 20))}:${pad(randInt(0, 59))}:00Z`;
+      }
+    }
+
     this.state = {
       users,
       admins,
@@ -817,9 +880,63 @@ class DatabaseEngine {
       survey_questions,
       evaluations,
       evaluation_responses,
+      activity_logs,
     };
 
     this.save();
+  }
+
+  // --- Activity Log & Notifications ---
+  public logActivity(entry: {
+    user_id: number | null;
+    action: string;
+    description: string;
+    event_id?: number | null;
+    target_user_id?: number | null;
+  }): ActivityLog {
+    const log: ActivityLog = {
+      log_id: (this.state.activity_logs.length ? Math.max(...this.state.activity_logs.map((l) => l.log_id)) : 0) + 1,
+      user_id: entry.user_id,
+      actor_name: entry.user_id ? this.findUserById(entry.user_id)?.full_name ?? 'Unknown user' : 'Anonymous participant',
+      action: entry.action,
+      description: entry.description,
+      event_id: entry.event_id ?? null,
+      target_user_id: entry.target_user_id ?? null,
+      created_at: new Date().toISOString(),
+    };
+    this.state.activity_logs.push(log);
+    this.save();
+    return log;
+  }
+
+  // Admins see everything; organizers see activity on their events; students see their own records
+  public getActivityLogs(userId: number, limit = 20): ActivityLog[] {
+    const user = this.findUserById(userId);
+    if (!user) return [];
+    const ownEventIds = new Set(this.state.events.filter((e) => e.organizer_id === userId).map((e) => e.event_id));
+    return this.state.activity_logs
+      .filter((log) => {
+        if (user.role === 'admin') return true;
+        if (log.user_id === userId || log.target_user_id === userId) return true;
+        return user.role === 'organizer' && log.event_id !== null && ownEventIds.has(log.event_id);
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
+  }
+
+  public recordLogin(userId: number) {
+    const user = this.findUserById(userId);
+    if (!user) return;
+    user.last_login = new Date().toISOString();
+    this.save();
+  }
+
+  public markNotificationsSeen(userId: number): string {
+    const user = this.findUserById(userId);
+    if (!user) throw new Error('User not found');
+    user.notifications_seen_at = new Date().toISOString();
+    this.save();
+    return user.notifications_seen_at;
   }
 
   // --- Users & Auth ---
@@ -1095,6 +1212,7 @@ class DatabaseEngine {
     this.state.evaluations = this.state.evaluations.filter(ev => ev.event_id !== id);
     this.state.evaluation_responses = this.state.evaluation_responses.filter(er => !evalIds.includes(er.evaluation_id));
     this.state.registrations = this.state.registrations.filter(r => r.event_id !== id);
+    this.state.activity_logs.forEach(l => { if (l.event_id === id) l.event_id = null; });
 
     this.save();
     return true;
@@ -1142,6 +1260,10 @@ class DatabaseEngine {
     this.state.registrations.push(newReg);
     this.save();
     return newReg;
+  }
+
+  public findRegistrationById(registrationId: number): Registration | undefined {
+    return this.state.registrations.find(r => r.registration_id === registrationId);
   }
 
   public getEventRegistrations(eventId: number): Registration[] {

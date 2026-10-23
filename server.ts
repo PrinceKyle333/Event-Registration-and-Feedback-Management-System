@@ -21,6 +21,10 @@ const getAuthenticatedUser = (req: Request) => {
   return db.findUserById(uid) || null;
 };
 
+const actorId = (req: Request) => getAuthenticatedUser(req)?.user_id ?? null;
+const eventName = (id: number) => db.getEventById(id)?.event_name ?? `event #${id}`;
+const userName = (id: number) => db.findUserById(id)?.full_name ?? `user #${id}`;
+
 // ============================================================================
 // 1. AUTHENTICATION & USER MANAGEMENT API
 // ============================================================================
@@ -40,7 +44,11 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+    if (user.status === 'inactive') {
+      return res.status(403).json({ error: 'This account has been deactivated. Please contact the administrator.' });
+    }
 
+    db.recordLogin(user.user_id);
     const { password: _, ...safeUser } = user;
     return res.json({
       message: 'Login successful',
@@ -67,6 +75,7 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
       student_id,
       college_department,
     });
+    db.logActivity({ user_id: createdUser.user_id, action: 'account_registered', description: `Created a ${createdUser.role} account` });
 
     return res.status(201).json({
       message: 'Account created successfully',
@@ -106,7 +115,26 @@ app.post('/api/users', (req: Request, res: Response) => {
       student_id,
       college_department,
     });
+    db.logActivity({
+      user_id: actorId(req),
+      action: 'user_created',
+      description: `Created ${created.role} account for ${created.full_name}`,
+      target_user_id: created.user_id,
+    });
     return res.status(201).json({ message: 'User account created', user: created });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// Must be registered before /api/users/:id, otherwise "profile" is treated as an id
+app.put('/api/users/profile', (req: Request, res: Response) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    const updated = db.updateUser(user.user_id, req.body);
+    db.logActivity({ user_id: user.user_id, action: 'profile_updated', description: 'Updated their profile' });
+    return res.json({ message: 'Profile updated successfully', user: updated });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
   }
@@ -116,6 +144,7 @@ app.put('/api/users/:id', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const updated = db.updateUser(id, req.body);
+    db.logActivity({ user_id: actorId(req), action: 'user_updated', description: `Updated account of ${updated.full_name}`, target_user_id: id });
     return res.json({ message: 'User account updated', user: updated });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -126,18 +155,13 @@ app.patch('/api/users/:id/status', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const updated = db.toggleUserStatus(id);
+    db.logActivity({
+      user_id: actorId(req),
+      action: updated.status === 'inactive' ? 'user_deactivated' : 'user_activated',
+      description: `${updated.status === 'inactive' ? 'Deactivated' : 'Activated'} account of ${updated.full_name}`,
+      target_user_id: id,
+    });
     return res.json({ message: `User account is now ${updated.status || 'active'}`, user: updated });
-  } catch (error: any) {
-    return res.status(400).json({ error: error.message });
-  }
-});
-
-app.put('/api/users/profile', (req: Request, res: Response) => {
-  try {
-    const user = getAuthenticatedUser(req);
-    if (!user) return res.status(401).json({ error: 'Not authenticated' });
-    const updated = db.updateUser(user.user_id, req.body);
-    return res.json({ message: 'Profile updated successfully', user: updated });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
   }
@@ -224,6 +248,12 @@ app.post('/api/events', (req: Request, res: Response) => {
       is_admin: isAdmin,
       image_url,
     });
+    db.logActivity({
+      user_id: actorId(req),
+      action: isAdmin ? 'event_published' : 'event_created',
+      description: `${isAdmin ? 'Published' : 'Submitted event proposal'} "${event.event_name}"`,
+      event_id: event.event_id,
+    });
 
     return res.status(201).json({
       message: isAdmin ? 'Event created and approved' : 'Event submitted for administrative approval',
@@ -238,6 +268,7 @@ app.put('/api/events/:id', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const updated = db.updateEvent(id, req.body);
+    db.logActivity({ user_id: actorId(req), action: 'event_updated', description: `Updated details of "${updated.event_name}"`, event_id: id });
     return res.json({ message: 'Event updated successfully', event: updated });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -256,6 +287,16 @@ app.patch('/api/events/:id/approval', (req: Request, res: Response) => {
     const adminId = user ? user.user_id : 1;
 
     const event = db.setEventApproval(id, status, adminId, rejection_reason);
+    db.logActivity({
+      user_id: adminId,
+      action: status === 'approved' ? 'event_approved' : 'event_rejected',
+      description:
+        status === 'approved'
+          ? `Approved event "${event.event_name}"`
+          : `Rejected event "${event.event_name}": ${event.rejection_reason}`,
+      event_id: id,
+      target_user_id: event.organizer_id,
+    });
     return res.json({
       message: `Event proposal ${status} successfully`,
       event,
@@ -274,6 +315,12 @@ app.patch('/api/events/:id/status', (req: Request, res: Response) => {
     }
 
     const event = db.setEventStatus(id, Number(is_active));
+    db.logActivity({
+      user_id: actorId(req),
+      action: event.is_active ? 'evaluation_opened' : 'evaluation_closed',
+      description: `${event.is_active ? 'Opened' : 'Closed'} evaluation for "${event.event_name}"`,
+      event_id: id,
+    });
     return res.json({
       message: `Event evaluation ${event.is_active ? 'activated' : 'deactivated'}`,
       event,
@@ -286,10 +333,12 @@ app.patch('/api/events/:id/status', (req: Request, res: Response) => {
 app.delete('/api/events/:id', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
+    const name = eventName(id);
     const success = db.deleteEvent(id);
     if (!success) {
       return res.status(404).json({ error: 'Event not found' });
     }
+    db.logActivity({ user_id: actorId(req), action: 'event_deleted', description: `Deleted event "${name}"` });
     return res.json({ message: 'Event deleted successfully' });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -310,6 +359,7 @@ app.post('/api/events/:id/register', (req: Request, res: Response) => {
     }
 
     const reg = db.registerParticipant(eventId, userId);
+    db.logActivity({ user_id: userId, action: 'event_registered', description: `Registered for "${eventName(eventId)}"`, event_id: eventId });
     return res.status(201).json({
       message: 'Registration confirmed successfully!',
       registration: reg,
@@ -353,6 +403,13 @@ app.patch('/api/registrations/:id/attendance', (req: Request, res: Response) => 
     }
 
     const updated = db.updateAttendance(regId, attendance_status);
+    db.logActivity({
+      user_id: actorId(req),
+      action: 'attendance_marked',
+      description: `Marked ${userName(updated.user_id)} as ${attendance_status} at "${eventName(updated.event_id)}"`,
+      event_id: updated.event_id,
+      target_user_id: updated.user_id,
+    });
     return res.json({
       message: `Attendance marked as ${attendance_status}`,
       registration: updated,
@@ -369,7 +426,17 @@ app.delete('/api/registrations/:id', (req: Request, res: Response) => {
     const userId = user ? user.user_id : Number(req.query.user_id);
     const isAdminOrOrg = user ? (user.role === 'admin' || user.role === 'organizer') : false;
 
+    const reg = db.findRegistrationById(regId);
     db.cancelRegistration(regId, userId, isAdminOrOrg);
+    if (reg) {
+      db.logActivity({
+        user_id: actorId(req),
+        action: 'registration_cancelled',
+        description: `Cancelled registration of ${userName(reg.user_id)} for "${eventName(reg.event_id)}"`,
+        event_id: reg.event_id,
+        target_user_id: reg.user_id,
+      });
+    }
     return res.json({ message: 'Registration cancelled successfully' });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -393,6 +460,7 @@ app.post('/api/survey/sections', (req: Request, res: Response) => {
     const { section_name, section_description, display_order } = req.body;
     if (!section_name) return res.status(400).json({ error: 'Section name is required' });
     const sec = db.createSurveySection({ section_name, section_description, display_order });
+    db.logActivity({ user_id: actorId(req), action: 'survey_section_created', description: `Added survey section "${sec.section_name}"` });
     return res.status(201).json({ section: sec });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -403,6 +471,7 @@ app.put('/api/survey/sections/:id', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const sec = db.updateSurveySection(id, req.body);
+    db.logActivity({ user_id: actorId(req), action: 'survey_section_updated', description: `Updated survey section "${sec.section_name}"` });
     return res.json({ section: sec });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -416,6 +485,7 @@ app.post('/api/survey/questions', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'section_id and question_text are required' });
     }
     const q = db.createSurveyQuestion({ section_id: Number(section_id), question_text, is_required });
+    db.logActivity({ user_id: actorId(req), action: 'survey_question_created', description: `Added survey question "${q.question_text}"` });
     return res.status(201).json({ question: q });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -426,6 +496,7 @@ app.put('/api/survey/questions/:id', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const q = db.updateSurveyQuestion(id, req.body);
+    db.logActivity({ user_id: actorId(req), action: 'survey_question_updated', description: `Updated survey question "${q.question_text}"` });
     return res.json({ question: q });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -437,6 +508,7 @@ app.delete('/api/survey/questions/:id', (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const success = db.deleteSurveyQuestion(id);
     if (!success) return res.status(404).json({ error: 'Question not found' });
+    db.logActivity({ user_id: actorId(req), action: 'survey_question_deleted', description: `Removed survey question #${id}` });
     return res.json({ message: 'Survey question deleted successfully' });
   } catch (error: any) {
     return res.status(400).json({ error: error.message });
@@ -460,6 +532,8 @@ app.post('/api/events/:id/evaluations', (req: Request, res: Response) => {
       comments,
       responses,
     });
+    // Logged without the participant id to keep evaluations anonymous
+    db.logActivity({ user_id: null, action: 'evaluation_submitted', description: `Evaluation submitted for "${eventName(eventId)}"`, event_id: eventId });
 
     return res.status(201).json(result);
   } catch (error: any) {
@@ -480,6 +554,29 @@ app.get('/api/events/:id/evaluation-report', (req: Request, res: Response) => {
 // ============================================================================
 // 5. ADMIN & REPORTS API
 // ============================================================================
+// ============================================================================
+// ACTIVITY LOG & NOTIFICATIONS API
+// ============================================================================
+app.get('/api/activity', (req: Request, res: Response) => {
+  const user = getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const limit = Math.min(Number(req.query.limit) || 20, 500);
+  return res.json({
+    logs: db.getActivityLogs(user.user_id, limit),
+    notifications_seen_at: user.notifications_seen_at ?? null,
+  });
+});
+
+app.patch('/api/activity/seen', (req: Request, res: Response) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    return res.json({ notifications_seen_at: db.markNotificationsSeen(user.user_id) });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 app.get('/api/admin/dashboard', (req: Request, res: Response) => {
   try {
     const stats = db.getAdminDashboardStats();

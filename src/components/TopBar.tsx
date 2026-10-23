@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bell, Shield, ChevronDown } from 'lucide-react';
-import { User } from '../types';
+import { User, ActivityLog } from '../types';
+import { api } from '../services/api';
+import { timeAgo } from '../utils/time';
 
 interface TopBarProps {
   currentUser: User | null;
@@ -14,6 +16,46 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<ActivityLog[]>([]);
+  const [seenAt, setSeenAt] = useState<string | null>(null);
+
+  const loadNotifications = async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api.getActivity(10);
+      setNotifications(data.logs);
+      setSeenAt(data.notifications_seen_at);
+    } catch {
+      setNotifications([]);
+    }
+  };
+
+  // Refresh on user switch and every 30s so new activity shows up without a reload
+  useEffect(() => {
+    loadNotifications();
+    const timer = setInterval(loadNotifications, 30000);
+    return () => clearInterval(timer);
+  }, [currentUser?.user_id]);
+
+  const unreadCount = notifications.filter(
+    (n) => n.user_id !== currentUser?.user_id && (!seenAt || n.created_at > seenAt)
+  ).length;
+
+  const toggleNotifications = async () => {
+    const opening = !notificationOpen;
+    setNotificationOpen(opening);
+    if (opening) {
+      await loadNotifications();
+    } else if (unreadCount > 0) {
+      // Mark as read when the panel closes so unread items stay highlighted while open
+      try {
+        const res = await api.markNotificationsSeen();
+        setSeenAt(res.notifications_seen_at);
+      } catch {
+        /* keep current unread state */
+      }
+    }
+  };
 
   const getWorkspaceTitle = () => {
     if (currentUser?.role === 'admin') return 'Administrator Panel Workspace';
@@ -42,45 +84,51 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* Right: Notification Bell & Bypass Scope dropdown */}
         <div className="flex items-center gap-4">
-          {/* Notification bell with badge "3" */}
+          {/* Notification bell */}
           <div className="relative">
             <button
-              onClick={() => setNotificationOpen(!notificationOpen)}
+              onClick={toggleNotifications}
               className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-stone-200 hover:text-white transition-colors relative"
               title="Recent Notifications"
             >
               <Bell size={18} />
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center shadow-xs">
-                3
-              </span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-rose-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center shadow-xs">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
 
             {notificationOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-stone-200 text-stone-800 p-3 z-50 text-xs space-y-2">
-                <div className="font-bold text-stone-900 border-b border-stone-100 pb-1.5 flex justify-between items-center">
-                  <span>System Notifications</span>
-                  <span className="whitespace-nowrap text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono">
-                    3 New
-                  </span>
+              <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-stone-200 text-stone-800 z-50 text-xs overflow-hidden">
+                <div className="font-bold text-stone-900 border-b border-stone-100 px-3 py-2.5 flex justify-between items-center">
+                  <span>Notifications</span>
+                  {unreadCount > 0 && (
+                    <span className="whitespace-nowrap text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                      {unreadCount} new
+                    </span>
+                  )}
                 </div>
-                <div className="p-2 bg-amber-50 rounded border border-amber-200 text-amber-900">
-                  <div className="font-bold">Pending Event Review</div>
-                  <div className="text-[11px] text-amber-800">
-                    Agri-Tech Hackathon submitted by Prof. Santos requires approval.
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-stone-400">No activity yet.</div>
+                ) : (
+                  <div className="max-h-96 overflow-y-auto divide-y divide-stone-100">
+                    {notifications.map((n) => {
+                      const isUnread = n.user_id !== currentUser?.user_id && (!seenAt || n.created_at > seenAt);
+                      return (
+                        <div key={n.log_id} className={`px-3 py-2.5 ${isUnread ? 'bg-emerald-50/60' : ''}`}>
+                          <div className="flex justify-between gap-2">
+                            <span className="font-bold text-stone-900 truncate">
+                              {n.user_id === currentUser?.user_id ? 'You' : n.actor_name}
+                            </span>
+                            <span className="text-[10px] text-stone-400 shrink-0">{timeAgo(n.created_at)}</span>
+                          </div>
+                          <div className="text-[11px] text-stone-600 mt-0.5">{n.description}</div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-                <div className="p-2 bg-emerald-50 rounded border border-emerald-200 text-emerald-900">
-                  <div className="font-bold">Attendance Updated</div>
-                  <div className="text-[11px] text-emerald-800">
-                    Prince Kyle Reston marked present for IT Week. Survey unlocked!
-                  </div>
-                </div>
-                <div className="p-2 bg-stone-50 rounded border border-stone-200 text-stone-700">
-                  <div className="font-bold">New Evaluation Recorded</div>
-                  <div className="text-[11px] text-stone-600">
-                    Anonymous feedback submitted for Capstone Colloquium.
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>

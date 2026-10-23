@@ -5,6 +5,8 @@ import {
   SurveySection,
   EvaluationReport,
   AdminDashboardStats,
+  ActivityLog,
+  EventReportRow,
 } from '../types';
 
 let currentUserId: number | null = 3; // Default to Prince Kyle Christian (student1) for instant testability
@@ -293,6 +295,22 @@ export const api = {
     const res = await fetch('/api/admin/dashboard', { headers: getHeaders() });
     const data = await handleResponse<{ stats: AdminDashboardStats }>(res);
     return data.stats;
+  },
+
+  async getEventsReport(): Promise<EventReportRow[]> {
+    const res = await fetch('/api/reports/events', { headers: getHeaders() });
+    const data = await handleResponse<{ events: EventReportRow[] }>(res);
+    return data.events;
+  },
+
+  async getActivity(limit = 20): Promise<{ logs: ActivityLog[]; notifications_seen_at: string | null }> {
+    const res = await fetch(`/api/activity?limit=${limit}`, { headers: getHeaders() });
+    return handleResponse<{ logs: ActivityLog[]; notifications_seen_at: string | null }>(res);
+  },
+
+  async markNotificationsSeen(): Promise<{ notifications_seen_at: string }> {
+    const res = await fetch('/api/activity/seen', { method: 'PATCH', headers: getHeaders() });
+    return handleResponse<{ notifications_seen_at: string }>(res);
   },
 
   async resetDemoDatabase(): Promise<{ message: string }> {

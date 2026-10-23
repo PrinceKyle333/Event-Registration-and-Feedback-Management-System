@@ -9,7 +9,35 @@ export interface User {
   student_id?: string | null;
   college_department?: string | null;
   status?: 'active' | 'inactive';
+  last_login?: string | null;
+  notifications_seen_at?: string | null;
   created_at: string;
+}
+
+export interface ActivityLog {
+  log_id: number;
+  user_id: number | null;
+  actor_name: string;
+  action: string;
+  description: string;
+  event_id: number | null;
+  target_user_id: number | null;
+  created_at: string;
+}
+
+export interface EventReportRow {
+  event_id: number;
+  event_name: string;
+  event_date: string;
+  department: string;
+  venue: string;
+  capacity: number;
+  approval_status: 'pending' | 'approved' | 'rejected';
+  is_active: number;
+  registered_count: number;
+  attended_count: number;
+  evaluation_count: number;
+  average_rating: number | null;
 }
 
 export interface EventItem {

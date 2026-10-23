@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS users (
     role ENUM('admin', 'organizer', 'student') NOT NULL DEFAULT 'student',
     student_id VARCHAR(50) NULL,
     college_department VARCHAR(100) NULL,
+    status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     last_login TIMESTAMP NULL,
+    notifications_seen_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -136,6 +138,24 @@ CREATE TABLE IF NOT EXISTS evaluation_responses (
     FOREIGN KEY (evaluation_id) REFERENCES evaluations(evaluation_id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES survey_questions(question_id) ON DELETE CASCADE,
     UNIQUE (evaluation_id, question_id)
+);
+
+-- ------------------------------------------------------------------------------
+-- 9. Table: activity_logs (audit trail; user_id is NULL for anonymous evaluations)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_logs (
+    log_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NULL,
+    actor_name VARCHAR(100) NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    description TEXT NOT NULL,
+    event_id INT NULL,
+    target_user_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE SET NULL,
+    FOREIGN KEY (target_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    INDEX idx_created (created_at)
 );
 
 -- ==============================================================================
