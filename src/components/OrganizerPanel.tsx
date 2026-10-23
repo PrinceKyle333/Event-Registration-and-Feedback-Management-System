@@ -383,7 +383,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      <span className={`whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold ${
                         evt.approval_status === 'approved'
                           ? 'bg-emerald-50 text-emerald-800'
                           : evt.approval_status === 'rejected'
@@ -490,15 +490,15 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                       </td>
                       <td className="py-3.5 px-4">
                         {evt.approval_status === 'approved' ? (
-                          <span className="text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full font-bold text-[10px]">
+                          <span className="whitespace-nowrap text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full font-bold text-[10px]">
                             Approved
                           </span>
                         ) : evt.approval_status === 'rejected' ? (
-                          <span className="text-rose-800 bg-rose-50 px-2.5 py-1 rounded-full font-bold text-[10px]">
+                          <span className="whitespace-nowrap text-rose-800 bg-rose-50 px-2.5 py-1 rounded-full font-bold text-[10px]">
                             Rejected
                           </span>
                         ) : (
-                          <span className="text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full font-bold text-[10px]">
+                          <span className="whitespace-nowrap text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full font-bold text-[10px]">
                             Pending Admin Review
                           </span>
                         )}
@@ -638,7 +638,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                           {new Date(reg.registered_at).toLocaleDateString()}
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
+                          <span className={`whitespace-nowrap px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
                             reg.attendance_status === 'attended'
                               ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                               : reg.attendance_status === 'absent'
@@ -757,7 +757,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                         {reg.student?.student_id || '—'}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
+                        <span className={`whitespace-nowrap px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
                           reg.attendance_status === 'attended'
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-stone-100 text-stone-600'
@@ -838,7 +838,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                 className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3"
               >
                 <div className="flex items-center justify-between">
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  <span className={`whitespace-nowrap px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                     evt.approval_status === 'approved'
                       ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                       : evt.approval_status === 'rejected'
@@ -963,7 +963,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                   <div key={idx} className="bg-white p-4 rounded-xl border border-stone-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <h5 className="font-bold text-xs text-stone-900">{sec.section_name}</h5>
-                      <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-xs">
+                      <span className="whitespace-nowrap font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-xs">
                         {sec.average_rating.toFixed(2)} / 5.0
                       </span>
                     </div>

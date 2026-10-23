@@ -88,7 +88,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight font-sans-cmu">
                 {currentUser?.full_name || 'Maria Dela Cruz'}
               </h2>
-              <span className="flex items-center gap-1.5 bg-[#02681E] text-emerald-200 border border-emerald-400/40 text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">
+              <span className="whitespace-nowrap flex items-center gap-1.5 bg-[#02681E] text-emerald-200 border border-emerald-400/40 text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 ACTIVE SESSION
               </span>
@@ -146,7 +146,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-3xl sm:text-4xl font-black text-white tracking-tight font-sans-cmu">
               {stats?.total_events ? stats.total_events + 3 : '7'}
             </span>
-            <span className="text-[10px] font-black tracking-wider uppercase bg-[#00240d] text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-md">
+            <span className="whitespace-nowrap text-[10px] font-black tracking-wider uppercase bg-[#00240d] text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-md">
               LIVE FEED
             </span>
           </div>
@@ -162,7 +162,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-3xl sm:text-4xl font-black text-white tracking-tight font-sans-cmu">
               {stats?.pending_approvals ?? '2'}
             </span>
-            <span className="text-[10px] font-black tracking-wider uppercase bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2.5 py-1 rounded-md">
+            <span className="whitespace-nowrap text-[10px] font-black tracking-wider uppercase bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2.5 py-1 rounded-md">
               UNRESOLVED
             </span>
           </div>
@@ -178,7 +178,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-3xl sm:text-4xl font-black text-white tracking-tight font-sans-cmu">
               84
             </span>
-            <span className="text-[10px] font-black tracking-wider uppercase bg-[#00240d] text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-md">
+            <span className="whitespace-nowrap text-[10px] font-black tracking-wider uppercase bg-[#00240d] text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-md">
               ACTIVE ACTORS
             </span>
           </div>
@@ -194,7 +194,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-3xl sm:text-4xl font-black text-white tracking-tight font-sans-cmu">
               98%
             </span>
-            <span className="text-[10px] font-black tracking-wider uppercase bg-[#00240d] text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-md">
+            <span className="whitespace-nowrap text-[10px] font-black tracking-wider uppercase bg-[#00240d] text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-md">
               NEDA STANDARDS
             </span>
           </div>
@@ -215,7 +215,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   ACTIVE USER SESSIONS
                 </h3>
               </div>
-              <span className="text-[10px] font-extrabold tracking-widest uppercase bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md border border-emerald-200">
+              <span className="whitespace-nowrap text-[10px] font-extrabold tracking-widest uppercase bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md border border-emerald-200">
                 LIVE TELEMETRY
               </span>
             </div>
@@ -257,12 +257,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                       </td>
                       <td className="py-3.5 px-5 text-right">
                         {s.statusType === 'active' ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                             Active
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-medium bg-stone-100 text-stone-600 border border-stone-200">
+                          <span className="whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full text-[11px] font-medium bg-stone-100 text-stone-600 border border-stone-200">
                             {s.status}
                           </span>
                         )}
@@ -400,7 +400,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <span className="text-4xl sm:text-5xl font-black font-sans-cmu text-white tracking-tight">
                 4,351
               </span>
-              <span className="px-3 py-1 bg-[#00280f] text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-black uppercase tracking-wide">
+              <span className="whitespace-nowrap px-3 py-1 bg-[#00280f] text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-black uppercase tracking-wide">
                 ACTIVE REGISTRY
               </span>
             </div>
@@ -417,7 +417,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <h4 className="text-[11px] font-black text-emerald-200 tracking-wider uppercase font-sans-cmu">
                 EVALUATION SATISFACTION PER COLLEGE
               </h4>
-              <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest bg-[#00280f] px-2 py-0.5 rounded border border-amber-400/30">
+              <span className="whitespace-nowrap text-[10px] font-black text-amber-300 uppercase tracking-widest bg-[#00280f] px-2 py-0.5 rounded border border-amber-400/30">
                 ACTIVE TELEMETRY
               </span>
             </div>

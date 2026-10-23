@@ -126,15 +126,15 @@ export const EventCard: React.FC<EventCardProps> = ({
 
             {currentUser?.role === 'student' ? (
               isRegistered ? (
-                <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded">
+                <span className="whitespace-nowrap text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded">
                   Registered ✓
                 </span>
               ) : isFull ? (
-                <span className="text-xs font-medium text-rose-600 bg-rose-50 px-2.5 py-1 rounded">
+                <span className="whitespace-nowrap text-xs font-medium text-rose-600 bg-rose-50 px-2.5 py-1 rounded">
                   Full Capacity
                 </span>
               ) : isDeadlinePassed ? (
-                <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded">
+                <span className="whitespace-nowrap text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded">
                   Closed
                 </span>
               ) : (

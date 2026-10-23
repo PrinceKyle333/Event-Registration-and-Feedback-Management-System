@@ -143,7 +143,7 @@ export const RestApiInspector: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-[#00491E] text-white">
+                    <span className="whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-[#00491E] text-white">
                       {ep.method}
                     </span>
                     <span className="font-mono text-xs font-semibold text-stone-800">

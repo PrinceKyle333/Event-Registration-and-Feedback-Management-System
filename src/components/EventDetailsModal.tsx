@@ -154,11 +154,11 @@ export const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
                 <>
                   {!isRegistered ? (
                     isFull ? (
-                      <span className="text-xs font-semibold text-rose-600 bg-rose-50 px-3 py-2 rounded-md">
+                      <span className="whitespace-nowrap text-xs font-semibold text-rose-600 bg-rose-50 px-3 py-2 rounded-md">
                         Event is at Full Capacity
                       </span>
                     ) : isDeadlinePassed ? (
-                      <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-3 py-2 rounded-md">
+                      <span className="whitespace-nowrap text-xs font-semibold text-amber-700 bg-amber-50 px-3 py-2 rounded-md">
                         Registration Closed
                       </span>
                     ) : (
@@ -173,7 +173,7 @@ export const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
                       </button>
                     )
                   ) : hasEvaluated ? (
-                    <span className="text-xs font-medium text-emerald-800 bg-emerald-50 px-3 py-2 rounded-md">
+                    <span className="whitespace-nowrap text-xs font-medium text-emerald-800 bg-emerald-50 px-3 py-2 rounded-md">
                       Feedback Submitted ✓
                     </span>
                   ) : hasAttended ? (
@@ -187,7 +187,7 @@ export const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
                       Submit Feedback Survey
                     </button>
                   ) : (
-                    <span className="text-xs font-medium text-amber-800 bg-amber-50 px-3 py-2 rounded-md">
+                    <span className="whitespace-nowrap text-xs font-medium text-amber-800 bg-amber-50 px-3 py-2 rounded-md">
                       Registered (Attendance Confirmation Required for Evaluation)
                     </span>
                   )}

@@ -95,7 +95,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 Explore upcoming Central Mindanao University seminars, check capacity, and register online.
               </p>
             </div>
-            <span className="text-xs font-mono font-bold text-[#00491E] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+            <span className="whitespace-nowrap text-xs font-mono font-bold text-[#00491E] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
               {events.filter((e) => e.approval_status === 'approved').length} Approved Events
             </span>
           </div>
@@ -158,7 +158,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-3 shrink-0">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      <span className={`whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold ${
                         reg.attendance_status === 'attended'
                           ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                           : reg.attendance_status === 'absent'
@@ -214,7 +214,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         {reg.event?.event_date} · {reg.event?.venue}
                       </td>
                       <td className="py-3.5 px-5">
-                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                        <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[11px] font-bold ${
                           reg.attendance_status === 'attended'
                             ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                             : reg.attendance_status === 'absent'
@@ -286,7 +286,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+                      <span className="whitespace-nowrap text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
                         Attendance Verified
                       </span>
                       {reg.has_evaluated && (
@@ -361,7 +361,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     <h3 className="text-base font-bold font-serif-cmu text-stone-900">
                       {ev.event_name}
                     </h3>
-                    <span className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md">
+                    <span className="whitespace-nowrap font-mono text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md">
                       Average Rating: {ev.average_given_rating} / 5.0
                     </span>
                   </div>

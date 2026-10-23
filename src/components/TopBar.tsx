@@ -59,7 +59,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-stone-200 text-stone-800 p-3 z-50 text-xs space-y-2">
                 <div className="font-bold text-stone-900 border-b border-stone-100 pb-1.5 flex justify-between items-center">
                   <span>System Notifications</span>
-                  <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono">
+                  <span className="whitespace-nowrap text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono">
                     3 New
                   </span>
                 </div>

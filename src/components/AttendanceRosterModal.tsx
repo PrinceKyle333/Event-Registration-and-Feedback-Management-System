@@ -192,15 +192,15 @@ export const AttendanceRosterModal: React.FC<AttendanceRosterModalProps> = ({
                       </td>
                       <td className="py-2.5 px-3">
                         {reg.attendance_status === 'attended' ? (
-                          <span className="font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
+                          <span className="whitespace-nowrap font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
                             Present ✓
                           </span>
                         ) : reg.attendance_status === 'absent' ? (
-                          <span className="font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded text-[11px]">
+                          <span className="whitespace-nowrap font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded text-[11px]">
                             Absent
                           </span>
                         ) : (
-                          <span className="font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded text-[11px]">
+                          <span className="whitespace-nowrap font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded text-[11px]">
                             Registered
                           </span>
                         )}

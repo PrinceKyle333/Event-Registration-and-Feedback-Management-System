@@ -420,7 +420,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        <span className={`whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold ${
                           evt.approval_status === 'approved'
                             ? 'bg-emerald-50 text-emerald-800'
                             : 'bg-amber-50 text-amber-800'
@@ -524,7 +524,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {u.email}
                       </td>
                       <td className="py-3.5 px-5">
-                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase ${
+                        <span className={`whitespace-nowrap px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase ${
                           u.role === 'admin'
                             ? 'bg-amber-100 text-amber-900'
                             : u.role === 'organizer'
@@ -538,7 +538,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {u.student_id ? `${u.student_id} (${u.college_department})` : u.college_department || '—'}
                       </td>
                       <td className="py-3.5 px-5">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        <span className={`whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold ${
                           u.status === 'inactive'
                             ? 'bg-rose-100 text-rose-800'
                             : 'bg-emerald-100 text-emerald-800'
@@ -676,7 +676,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </td>
                       <td className="py-3.5 px-5">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        <span className={`whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                           evt.approval_status === 'approved'
                             ? 'bg-emerald-50 text-emerald-800'
                             : evt.approval_status === 'rejected'
@@ -797,7 +797,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {section.section_description}
                     </span>
                   </div>
-                  <span className="text-xs font-mono font-bold text-stone-700 bg-white px-2.5 py-0.5 rounded border border-stone-200">
+                  <span className="whitespace-nowrap text-xs font-mono font-bold text-stone-700 bg-white px-2.5 py-0.5 rounded border border-stone-200">
                     {section.questions.length} questions
                   </span>
                 </div>
@@ -869,7 +869,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <td className="py-3.5 px-5 font-mono text-emerald-700 font-bold">165 attended</td>
                     <td className="py-3.5 px-5 font-mono font-bold text-[#00491E]">91.6%</td>
                     <td className="py-3.5 px-5 text-right">
-                      <span className="text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold">
+                      <span className="whitespace-nowrap text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold">
                         Excellent
                       </span>
                     </td>
@@ -882,7 +882,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <td className="py-3.5 px-5 font-mono text-emerald-700 font-bold">98 attended</td>
                     <td className="py-3.5 px-5 font-mono font-bold text-[#00491E]">81.7%</td>
                     <td className="py-3.5 px-5 text-right">
-                      <span className="text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold">
+                      <span className="whitespace-nowrap text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold">
                         Very Satisfactory
                       </span>
                     </td>
@@ -895,7 +895,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <td className="py-3.5 px-5 font-mono text-emerald-700 font-bold">78 attended</td>
                     <td className="py-3.5 px-5 font-mono font-bold text-[#00491E]">82.1%</td>
                     <td className="py-3.5 px-5 text-right">
-                      <span className="text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold">
+                      <span className="whitespace-nowrap text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold">
                         Very Satisfactory
                       </span>
                     </td>
