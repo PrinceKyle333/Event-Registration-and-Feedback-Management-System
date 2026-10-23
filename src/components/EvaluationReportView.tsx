@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { EvaluationReport, EventItem } from '../types';
-import crestImage from '../assets/images/cmu_academic_crest_1792726539957.jpg';
 
 interface EvaluationReportViewProps {
   initialEventId?: number;
@@ -142,14 +141,14 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
             disabled={!report}
             className="px-4 py-1.5 text-xs font-semibold bg-[#00491E] hover:bg-[#02681E] text-white rounded-md transition-colors shadow-xs disabled:opacity-50"
           >
-            Print Official Report
+            Print Report
           </button>
         </div>
       </div>
 
       {loading && (
         <div className="p-12 text-center text-xs text-stone-500 bg-white rounded-xl border border-stone-200">
-          Calculating statistical survey aggregates from MySQL database...
+          Loading report...
         </div>
       )}
 
@@ -160,223 +159,109 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
       )}
 
       {report && !loading && (
-        <div className="bg-white p-6 sm:p-10 rounded-xl border border-stone-200 shadow-xs print:shadow-none print:border-none print:p-0 space-y-8">
-          {/* Institutional Print Header */}
-          <div className="border-b-2 border-[#00491E] pb-6 flex items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <img
-                src={crestImage}
-                alt="Central Mindanao University"
-                className="w-16 h-16 object-contain"
-                referrerPolicy="no-referrer"
-              />
-              <div>
-                <span className="text-xs font-semibold tracking-wider uppercase text-stone-500 block">
-                  Republic of the Philippines · Central Mindanao University
-                </span>
-                <h1 className="text-xl sm:text-2xl font-bold font-serif-cmu text-[#00491E] leading-tight">
-                  Office of Student Affairs & Academic Services
-                </h1>
-                <p className="text-xs text-stone-600 font-sans-cmu">
-                  Official Post-Event Evaluation & Feedback Summary Report
-                </p>
-              </div>
-            </div>
-
-            <div className="text-right text-xs text-stone-500 hidden sm:block">
-              <div>System: BSIT 4B SIA Project</div>
-              <div>Generated: {new Date(report.generated_at).toLocaleDateString()}</div>
-              <div className="font-mono text-[11px] text-stone-400">REST API v1.0</div>
-            </div>
-          </div>
-
-          {/* Event Profile Card */}
-          <div className="bg-stone-50 p-5 rounded-lg border border-stone-200">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-xs text-stone-500 font-medium">Event Title</span>
-                <h2 className="text-lg font-bold font-serif-cmu text-stone-900">
-                  {report.event_name}
-                </h2>
-              </div>
-              <span className={`px-3 py-1 rounded-md text-xs font-bold border ${getInterpretationColor(report.overall_interpretation)}`}>
-                {report.overall_interpretation} ({report.overall_mean_score.toFixed(2)} / 5.00)
+        <div className="bg-white rounded-xl border border-stone-200 overflow-hidden print:border-none">
+          {/* Green report header with event title */}
+          <div
+            className="bg-[#00491E] text-white px-6 sm:px-8 py-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4"
+            style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
+          >
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-[#FFC600]">
+                Evaluation Report
               </span>
+              <h1 className="text-xl sm:text-2xl font-bold font-serif-cmu leading-tight mt-1">
+                {report.event_name}
+              </h1>
+              <p className="text-xs text-white/70 mt-1.5">
+                {report.department} · {report.event_date} · {report.venue}
+              </p>
             </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs pt-3 border-t border-stone-200 text-stone-700">
-              <div>
-                <span className="text-stone-500 block">Department</span>
-                <span className="font-semibold">{report.department}</span>
+            <div className="sm:text-right shrink-0">
+              <div className="text-3xl font-black tabular-nums text-[#FFC600] leading-none">
+                {report.overall_mean_score.toFixed(2)}
+                <span className="text-sm font-bold text-white/60"> / 5</span>
               </div>
-              <div>
-                <span className="text-stone-500 block">Event Date & Venue</span>
-                <span className="font-semibold">{report.event_date} · {report.venue}</span>
-              </div>
-              <div>
-                <span className="text-stone-500 block">Attendance Rate</span>
-                <span className="font-mono tabular-nums font-semibold">
-                  {report.total_attended} / {report.total_registered} ({report.total_registered > 0 ? ((report.total_attended / report.total_registered) * 100).toFixed(0) : 0}%)
-                </span>
-              </div>
-              <div>
-                <span className="text-stone-500 block">Evaluations Submitted</span>
-                <span className="font-mono tabular-nums font-semibold">
-                  {report.total_evaluations} submissions ({report.response_rate_percent}%)
-                </span>
-              </div>
+              <div className="text-xs font-semibold text-white/85 mt-1">{report.overall_interpretation}</div>
             </div>
           </div>
 
-          {/* Rating Scale Reference Rubric */}
-          <div className="p-3.5 bg-stone-50/70 border border-stone-200 rounded-lg text-xs">
-            <span className="font-semibold text-stone-800 block mb-1">
-              Official Interpretation Scale Matrix:
-            </span>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-stone-600 text-[11px]">
-              <div><strong className="text-emerald-700">4.50 – 5.00:</strong> Excellent</div>
-              <div><strong className="text-green-700">4.00 – 4.49:</strong> Very Satisfactory</div>
-              <div><strong className="text-amber-700">3.00 – 3.99:</strong> Satisfactory</div>
-              <div><strong className="text-orange-700">1.50 – 2.99:</strong> Unsatisfactory</div>
-              <div><strong className="text-rose-700">1.00 – 1.49:</strong> Very Unsatisfactory</div>
+          <div className="p-6 sm:p-8 space-y-8">
+            {/* Key figures */}
+            <div className="grid grid-cols-3 divide-x divide-stone-200 text-center">
+              <div className="px-2">
+                <div className="text-xl font-bold tabular-nums text-stone-900">
+                  {report.total_attended}
+                  <span className="text-sm text-stone-400"> / {report.total_registered}</span>
+                </div>
+                <div className="text-[11px] text-stone-500 mt-0.5">Attended</div>
+              </div>
+              <div className="px-2">
+                <div className="text-xl font-bold tabular-nums text-stone-900">{report.total_evaluations}</div>
+                <div className="text-[11px] text-stone-500 mt-0.5">Evaluations</div>
+              </div>
+              <div className="px-2">
+                <div className="text-xl font-bold tabular-nums text-stone-900">{report.response_rate_percent}%</div>
+                <div className="text-[11px] text-stone-500 mt-0.5">Response Rate</div>
+              </div>
             </div>
-          </div>
 
-          {/* Section by Section Breakdown */}
-          <div className="space-y-6">
-            <h3 className="text-base font-bold font-serif-cmu text-stone-900 border-b border-stone-200 pb-2">
-              Evaluation Results by Survey Section & Question
-            </h3>
-
-            {report.sections.map((section, secIdx) => (
-              <div key={section.section_id} className="border border-stone-200 rounded-lg overflow-hidden">
-                <div className="bg-stone-100/70 px-4 py-3 flex items-center justify-between border-b border-stone-200">
-                  <div>
-                    <h4 className="text-xs font-bold text-[#00491E] tracking-tight uppercase">
-                      Section {secIdx + 1}: {section.section_name}
-                    </h4>
-                    <span className="text-[11px] text-stone-500">
-                      {section.section_description}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-xs text-stone-800 tabular-nums">
-                      {section.mean_score > 0 ? section.mean_score.toFixed(2) : '—'} / 5.00
-                    </span>
-                    <span className="text-[11px] text-stone-500 block">
-                      {section.interpretation}
-                    </span>
-                  </div>
+            {/* Results by section */}
+            {report.sections.map((section) => (
+              <div key={section.section_id}>
+                <div className="flex items-baseline justify-between gap-4 border-b border-stone-200 pb-2 mb-1">
+                  <h3 className="text-sm font-bold text-[#00491E]">{section.section_name}</h3>
+                  <span className="text-sm font-bold tabular-nums text-stone-900 shrink-0">
+                    {section.mean_score > 0 ? section.mean_score.toFixed(2) : '—'}
+                    <span className="text-xs font-medium text-stone-400 ml-1.5">{section.interpretation}</span>
+                  </span>
                 </div>
 
                 <div className="divide-y divide-stone-100">
-                  {section.questions.map((q, qIdx) => (
-                    <div key={q.question_id} className="p-4 hover:bg-stone-50/50 transition-colors">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                        <div className="text-xs font-medium text-stone-800 max-w-xl">
-                          <span className="font-mono text-stone-400 mr-1.5">
-                            {secIdx + 1}.{qIdx + 1}
-                          </span>
-                          {q.question_text}
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="font-mono font-bold text-xs text-stone-900 tabular-nums">
-                            {q.mean_score > 0 ? q.mean_score.toFixed(2) : '—'}
-                          </span>
-                          <span className="text-[11px] font-medium text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
-                            {q.interpretation}
-                          </span>
-                        </div>
+                  {section.questions.map((q) => (
+                    <div key={q.question_id} className="py-2.5 flex items-center gap-4">
+                      <span className="flex-1 text-xs text-stone-700">{q.question_text}</span>
+                      <div className="w-24 sm:w-32 h-1.5 bg-stone-100 rounded-full overflow-hidden shrink-0">
+                        <div
+                          className="h-full bg-[#00491E] rounded-full"
+                          style={{ width: `${(q.mean_score / 5) * 100}%`, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
+                        />
                       </div>
-
-                      {/* Visual Frequency Distribution Bar */}
-                      <div className="grid grid-cols-5 gap-1.5 pt-1">
-                        {[1, 2, 3, 4, 5].map((ratingVal) => {
-                          const count = q.rating_counts[ratingVal] || 0;
-                          const totalQ = q.responses_count || 1;
-                          const pct = q.responses_count > 0 ? (count / totalQ) * 100 : 0;
-                          return (
-                            <div key={ratingVal} className="space-y-0.5">
-                              <div className="flex justify-between text-[10px] text-stone-400 font-mono">
-                                <span>R{ratingVal}</span>
-                                <span>{count}</span>
-                              </div>
-                              <div className="w-full bg-stone-100 h-1.5 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${
-                                    ratingVal >= 4 ? 'bg-[#00491E]' : ratingVal === 3 ? 'bg-amber-400' : 'bg-rose-400'
-                                  }`}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <span className="w-9 text-right text-xs font-semibold tabular-nums text-stone-900 shrink-0">
+                        {q.mean_score > 0 ? q.mean_score.toFixed(2) : '—'}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             ))}
-          </div>
 
-          {/* Anonymous Written Comments */}
-          <div className="border border-stone-200 rounded-lg p-5 bg-stone-50/50 space-y-3">
-            <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-              <h4 className="text-xs font-bold text-[#00491E] tracking-tight uppercase">
-                Anonymous Participant Comments & Suggestions
-              </h4>
-              <span className="text-[11px] text-stone-500 font-mono">
-                {report.anonymous_comments.length} comments recorded
-              </span>
-            </div>
-
-            {report.anonymous_comments.length === 0 ? (
-              <p className="text-xs text-stone-500 italic py-2">
-                No written comments submitted for this event yet.
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                {report.anonymous_comments.map((comm, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 bg-white rounded border border-stone-200 text-xs text-stone-700 leading-relaxed"
-                  >
-                    <p>"{comm.comment}"</p>
-                    <div className="text-[10px] text-stone-400 mt-1 font-mono">
-                      Feedback Entry · {new Date(comm.submit_date).toLocaleDateString()} (Identity Anonymized)
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Academic Memo Sign-off block for printed reports */}
-          <div className="pt-8 border-t border-stone-200 grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs text-stone-700">
+            {/* Anonymous comments */}
             <div>
-              <span className="text-stone-400 block mb-8">Prepared by:</span>
-              <div className="font-semibold text-stone-900 border-t border-stone-400 pt-1">
-                Student Council Secretariat
+              <div className="flex items-baseline justify-between gap-4 border-b border-stone-200 pb-2 mb-3">
+                <h3 className="text-sm font-bold text-[#00491E]">Comments</h3>
+                <span className="text-xs text-stone-400">{report.anonymous_comments.length} anonymous</span>
               </div>
-              <div className="text-[11px] text-stone-500">BSIT 4B Event Coordinators</div>
+              {report.anonymous_comments.length === 0 ? (
+                <p className="text-xs text-stone-400">No written comments yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {report.anonymous_comments.map((comm, idx) => (
+                    <blockquote key={idx} className="border-l-2 border-[#00491E]/30 pl-3 text-xs text-stone-700 leading-relaxed">
+                      {comm.comment}
+                      <div className="text-[10px] text-stone-400 mt-0.5">
+                        {new Date(comm.submit_date).toLocaleDateString()}
+                      </div>
+                    </blockquote>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div>
-              <span className="text-stone-400 block mb-8">Reviewed by:</span>
-              <div className="font-semibold text-stone-900 border-t border-stone-400 pt-1">
-                Prof. Maria Santos
-              </div>
-              <div className="text-[11px] text-stone-500">Event Organizer / Faculty Adviser</div>
-            </div>
-
-            <div className="col-span-2 sm:col-span-1">
-              <span className="text-stone-400 block mb-8">Certified by:</span>
-              <div className="font-semibold text-stone-900 border-t border-stone-400 pt-1">
-                Engr. Juan Dela Cruz
-              </div>
-              <div className="text-[11px] text-stone-500">Dean, CISC / System Administrator</div>
-            </div>
+            {/* Rating scale */}
+            <p className="text-[10px] text-stone-400 border-t border-stone-100 pt-4">
+              Scale: 4.50–5.00 Excellent · 4.00–4.49 Very Satisfactory · 3.00–3.99 Satisfactory · 1.50–2.99
+              Unsatisfactory · 1.00–1.49 Very Unsatisfactory · Generated {new Date(report.generated_at).toLocaleDateString()}
+            </p>
           </div>
         </div>
       )}
