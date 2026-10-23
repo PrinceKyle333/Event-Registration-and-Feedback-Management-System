@@ -17,7 +17,6 @@ import { AdminPanel } from './components/AdminPanel';
 import { OrganizerPanel } from './components/OrganizerPanel';
 import { StudentRegistrationsView } from './components/StudentRegistrationsView';
 import { StudentPortal } from './components/StudentPortal';
-import { RestApiInspector } from './components/RestApiInspector';
 import { LoginModal } from './components/LoginModal';
 import { api, setAuthUserId } from './services/api';
 import { EventItem, User, Registration, AdminDashboardStats } from './types';
@@ -224,11 +223,6 @@ export default function App() {
 
         {/* Main Viewport Content */}
         <main className="flex-1 p-5 sm:p-7 max-w-[1550px] w-full mx-auto space-y-6">
-          {/* 1. REST API & SQL INSPECTOR */}
-          {activeModule === 'api-docs' && (
-            <RestApiInspector />
-          )}
-
           {/* 2. ADMIN DASHBOARD & OVERVIEW (Exact match to screenshot image_8c89f589.png) */}
           {(activeModule === 'admin-dashboard' || (activeModule === 'dashboard' && currentUser?.role === 'admin')) && (
             <DashboardOverview

@@ -8,12 +8,10 @@ import {
   ClipboardCheck,
   BarChart3,
   FileText,
-  Settings,
   Plus,
   Trash2,
   CheckCircle2,
   XCircle,
-  Download,
   RotateCcw,
   LayoutDashboard,
 } from 'lucide-react';
@@ -21,7 +19,7 @@ import { EvaluationReportView } from './EvaluationReportView';
 
 interface AdminPanelProps {
   currentUser: User;
-  initialSubTab?: 'dashboard' | 'users' | 'approval' | 'events' | 'surveys' | 'eval-reports' | 'reg-reports' | 'settings';
+  initialSubTab?: 'dashboard' | 'users' | 'approval' | 'events' | 'surveys' | 'eval-reports' | 'reg-reports';
   onOpenCreateEvent: () => void;
   onOpenAttendance: (eventId: number) => void;
   onViewReport: (eventId: number) => void;
@@ -35,7 +33,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onViewReport,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<
-    'dashboard' | 'users' | 'approval' | 'events' | 'surveys' | 'eval-reports' | 'reg-reports' | 'settings'
+    'dashboard' | 'users' | 'approval' | 'events' | 'surveys' | 'eval-reports' | 'reg-reports'
   >(initialSubTab);
 
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
@@ -61,11 +59,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newStudentId, setNewStudentId] = useState('');
   const [newDept, setNewDept] = useState('BSIT 4B');
   const [creatingUser, setCreatingUser] = useState(false);
-
-  // System Settings state
-  const [autoApproval, setAutoApproval] = useState(false);
-  const [minRatingToPass, setMinRatingToPass] = useState(3.0);
-  const [dbName, setDbName] = useState('event_evaluation_system');
 
   useEffect(() => {
     setActiveSubTab(initialSubTab);
@@ -378,15 +371,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <FileText size={14} />
           Registration Reports
         </button>
-        <button
-          onClick={() => setActiveSubTab('settings')}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'settings' ? 'bg-[#00491E] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          <Settings size={14} />
-          System Settings
-        </button>
       </div>
 
       {/* 0. MODULE: DASHBOARD */}
@@ -530,13 +514,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span className="font-bold text-stone-800">📊 Generate Statistical Reports</span>
                     <span className="text-[10px] text-stone-500">Rubric Summary</span>
                   </button>
-                  <a
-                    href="/api/system/export-sql"
-                    className="w-full text-left p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 flex items-center justify-between"
-                  >
-                    <span className="font-bold text-[#00491E]">💾 Export MySQL Database</span>
-                    <span className="text-[10px] text-emerald-800">.sql dump</span>
-                  </a>
                 </div>
               </div>
             </div>
@@ -914,15 +891,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 Attendance rate metrics, turnout counts, and participation data for all departments.
               </p>
             </div>
-            <button
-              onClick={() => {
-                window.location.href = '/api/system/export-sql';
-              }}
-              className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xl text-xs font-bold border border-stone-300 flex items-center gap-1.5"
-            >
-              <Download size={14} />
-              Export Database
-            </button>
           </div>
 
           <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs">
@@ -979,103 +947,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </tr>
                 </tbody>
               </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 6. MODULE: SYSTEM SETTINGS */}
-      {activeSubTab === 'settings' && (
-        <div className="space-y-6">
-          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
-            <h3 className="text-base font-bold font-serif-cmu text-stone-900">
-              System Settings & Architecture Configuration
-            </h3>
-            <p className="text-xs text-stone-500 font-sans-cmu mt-0.5">
-              Manage database settings, evaluation parameters, and administrative backups for the BSIT 4B SIA project.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-4">
-              <h4 className="text-sm font-bold font-serif-cmu text-stone-900 border-b border-stone-100 pb-2">
-                MySQL Database Parameters
-              </h4>
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="text-stone-500 block mb-1">Database Schema</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={dbName}
-                    className="w-full bg-stone-50 px-3 py-2 border border-stone-300 rounded font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-stone-500 block mb-1">Server Port</label>
-                  <input
-                    type="text"
-                    disabled
-                    value="3000 (Express & Vite Middleware)"
-                    className="w-full bg-stone-50 px-3 py-2 border border-stone-300 rounded font-mono"
-                  />
-                </div>
-                <div className="pt-2">
-                  <a
-                    href="/api/system/export-sql"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#00491E] text-white font-bold rounded-xl text-xs hover:bg-[#02681E] shadow-xs"
-                  >
-                    <Download size={14} />
-                    Download event_evaluation_system.sql
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-4">
-              <h4 className="text-sm font-bold font-serif-cmu text-stone-900 border-b border-stone-100 pb-2">
-                Evaluation Quality Parameters
-              </h4>
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="text-stone-500 block mb-1">Minimum Satisfactory Rating Threshold</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="1"
-                    max="5"
-                    value={minRatingToPass}
-                    onChange={(e) => setMinRatingToPass(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-stone-300 rounded font-mono"
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="auto-approval-check"
-                    checked={autoApproval}
-                    onChange={(e) => setAutoApproval(e.target.checked)}
-                    className="rounded text-[#00491E]"
-                  />
-                  <label htmlFor="auto-approval-check" className="text-stone-700 font-medium">
-                    Auto-activate events upon organizer proposal
-                  </label>
-                </div>
-                <div className="pt-4 border-t border-stone-100">
-                  <button
-                    onClick={async () => {
-                      if (!window.confirm('Reset database to clean Central Mindanao University seed data?')) return;
-                      await api.resetDemoDatabase();
-                      setActionSuccess('Database restored to clean seed data');
-                      loadData();
-                    }}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-stone-100 text-stone-800 font-bold rounded-xl text-xs hover:bg-stone-200 border border-stone-300"
-                  >
-                    <RotateCcw size={14} />
-                    Reset Initial Seed Data
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
