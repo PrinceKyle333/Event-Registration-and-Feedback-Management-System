@@ -89,61 +89,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = getNavItems();
 
+  const navItemClass = (isActive: boolean) =>
+    `w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-bold transition-colors text-left ${
+      isActive ? 'bg-white text-[#00491E]' : 'text-white/75 hover:bg-white/10 hover:text-white'
+    }`;
+
+  const roleButtonClass = (r: string) =>
+    `py-1 text-[10px] font-bold rounded-md transition-colors ${
+      currentUser?.role === r ? 'bg-white text-[#00491E]' : 'text-white/70 hover:text-white'
+    }`;
+
   return (
     <aside
-      className={`no-print relative bg-cmu-pattern text-white flex flex-col justify-between shrink-0 transition-all duration-300 z-30 border-r border-[#003d18] ${
+      className={`no-print relative bg-[#00491E] text-white flex flex-col justify-between shrink-0 transition-all duration-300 z-30 border-r border-white/10 ${
         collapsed ? 'w-20' : 'w-64 lg:w-72'
       }`}
       style={{ minHeight: '100vh' }}
     >
       {/* Brand Header */}
-      <div className="p-5 border-b border-[#013f19]/60 flex items-center justify-between shrink-0">
-        {!collapsed && (
-          <div className="flex items-center gap-3 overflow-hidden">
-            {/* Circular Gold Ring CMU Logo matching image_6d6b15ca.png */}
-            <div className="w-10 h-10 rounded-full border-2 border-[#FFC600] bg-[#002f13] shadow-md shrink-0 flex items-center justify-center p-0.5">
-              <span className="font-black text-[#FFC600] font-serif-cmu text-xs tracking-tight">
-                CMU
-              </span>
-            </div>
+      <div
+        className={`border-b border-white/10 flex items-center shrink-0 ${
+          collapsed ? 'flex-col gap-2 py-4 px-2' : 'justify-between gap-2 p-5'
+        }`}
+      >
+        <div className="flex items-center gap-3 overflow-hidden">
+          <div className="w-10 h-10 rounded-full bg-white shrink-0 flex items-center justify-center p-1">
+            <img src="/cmu-logo.png" alt="CMU logo" className="w-full h-full object-contain" />
+          </div>
+          {!collapsed && (
             <div className="flex flex-col truncate">
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-white tracking-tight text-base leading-none">
-                  CMU Event
-                </span>
-                <span className="text-[10px] text-[#FFC600] font-black uppercase tracking-wider">
-                  SIA
-                </span>
-              </div>
-              <span className="text-[9px] font-extrabold text-[#FFC600] tracking-wider uppercase mt-1">
-                EVENT REGISTRATION & EVALUATION
+              <span className="font-extrabold text-white tracking-tight text-base leading-none">
+                CMU Event
+              </span>
+              <span className="text-[10px] font-semibold text-white/60 tracking-wide mt-1 truncate">
+                Registration & Evaluation
               </span>
             </div>
-          </div>
-        )}
-
-        {collapsed && (
-          <div className="mx-auto w-10 h-10 rounded-full border-2 border-[#FFC600] bg-[#002f13] flex items-center justify-center">
-            <span className="font-black text-[#FFC600] font-serif-cmu text-xs">
-              CMU
-            </span>
-          </div>
-        )}
+          )}
+        </div>
 
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="text-stone-300 hover:text-amber-300 p-1.5 rounded-md hover:bg-white/5 transition-colors"
+          className="text-white/60 hover:text-white p-1.5 rounded-md hover:bg-white/10 transition-colors shrink-0"
           title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
         >
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
       </div>
 
-      {/* Navigation Modules (Exact to User Specification) */}
+      {/* Navigation Modules */}
       <div className="flex-1 py-4 px-3 space-y-4 overflow-y-auto">
         <div>
           {!collapsed && (
-            <div className="px-3 mb-2.5 text-[10px] font-black text-[#FFC600] tracking-widest uppercase">
+            <div className="px-3 mb-2.5 text-[10px] font-bold text-white/50 tracking-widest uppercase">
               {getModuleSectionTitle()}
             </div>
           )}
@@ -151,24 +149,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <nav className="space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeModule === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveModule(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-bold transition-all text-left ${
-                    isActive
-                      ? 'bg-[#FFC600] text-slate-950 font-black shadow-sm'
-                      : 'text-stone-300 hover:bg-white/10 hover:text-white'
-                  }`}
+                  className={navItemClass(activeModule === item.id)}
                   title={collapsed ? item.label : undefined}
                 >
-                  <Icon
-                    size={17}
-                    className={`shrink-0 ${
-                      isActive ? 'text-slate-950' : 'text-stone-300'
-                    }`}
-                  />
+                  <Icon size={17} className="shrink-0" />
                   {!collapsed && (
                     <span className="truncate tracking-wide text-[11px] uppercase">{item.label}</span>
                   )}
@@ -179,55 +167,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* REST API & MySQL Hub link */}
-        <div className="pt-2 border-t border-[#013f19]/80">
+        <div className="pt-2 border-t border-white/10">
           <button
             onClick={() => setActiveModule('api-docs')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-bold transition-all text-left ${
-              activeModule === 'api-docs'
-                ? 'bg-[#FFC600] text-slate-950 font-black shadow-sm'
-                : 'text-stone-400 hover:bg-white/10 hover:text-amber-300'
-            }`}
+            className={navItemClass(activeModule === 'api-docs')}
+            title={collapsed ? 'REST API & SQL DUMP' : undefined}
           >
-            <Database size={16} />
-            {!collapsed && <span className="truncate text-[11px]">REST API & SQL DUMP</span>}
+            <Database size={17} className="shrink-0" />
+            {!collapsed && <span className="truncate tracking-wide text-[11px]">REST API & SQL DUMP</span>}
           </button>
         </div>
 
         {/* Quick Role Switcher Buttons */}
         {!collapsed && (
-          <div className="px-2 pt-2 border-t border-[#013f19]/80">
-            <span className="text-[9px] font-black text-amber-400/90 tracking-wider uppercase block mb-1.5">
+          <div className="px-2 pt-2 border-t border-white/10">
+            <span className="text-[9px] font-bold text-white/50 tracking-wider uppercase block mb-1.5">
               TEST DIFFERENT ROLES
             </span>
-            <div className="grid grid-cols-3 gap-1 bg-[#001f0c] p-1 rounded-lg border border-[#02521c]">
-              <button
-                onClick={() => onSwitchUser('admin')}
-                className={`py-1 text-[10px] font-extrabold rounded transition-colors ${
-                  currentUser?.role === 'admin'
-                    ? 'bg-[#00491E] text-amber-300 shadow-xs'
-                    : 'text-stone-400 hover:text-white'
-                }`}
-              >
+            <div className="grid grid-cols-3 gap-1 bg-black/15 p-1 rounded-lg">
+              <button onClick={() => onSwitchUser('admin')} className={roleButtonClass('admin')}>
                 Admin
               </button>
-              <button
-                onClick={() => onSwitchUser('organizer1')}
-                className={`py-1 text-[10px] font-extrabold rounded transition-colors ${
-                  currentUser?.role === 'organizer'
-                    ? 'bg-[#00491E] text-amber-300 shadow-xs'
-                    : 'text-stone-400 hover:text-white'
-                }`}
-              >
+              <button onClick={() => onSwitchUser('organizer1')} className={roleButtonClass('organizer')}>
                 Organizer
               </button>
-              <button
-                onClick={() => onSwitchUser('student1')}
-                className={`py-1 text-[10px] font-extrabold rounded transition-colors ${
-                  currentUser?.role === 'student'
-                    ? 'bg-[#00491E] text-amber-300 shadow-xs'
-                    : 'text-stone-400 hover:text-white'
-                }`}
-              >
+              <button onClick={() => onSwitchUser('student1')} className={roleButtonClass('student')}>
                 Student
               </button>
             </div>
@@ -236,10 +200,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* User Profile Card at bottom */}
-      <div className="p-3 border-t border-[#013f19]/80 relative shrink-0">
+      <div className="p-3 border-t border-white/10 relative shrink-0">
         {profileDropdownOpen && (
-          <div className="absolute bottom-full left-3 right-3 mb-2 bg-[#001f0c] rounded-xl border border-[#02521c] p-2 shadow-2xl space-y-1 text-xs z-50">
-            <div className="px-2.5 py-1.5 text-stone-400 text-[11px] border-b border-[#02521c]">
+          <div className="absolute bottom-full left-3 right-3 mb-2 bg-[#003e19] rounded-xl border border-white/10 p-2 shadow-2xl space-y-1 text-xs z-50">
+            <div className="px-2.5 py-1.5 text-white/60 text-[11px] border-b border-white/10">
               Signed in as <strong className="text-white">{currentUser?.username}</strong>
             </div>
             <button
@@ -247,7 +211,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSwitchUser('admin');
                 setProfileDropdownOpen(false);
               }}
-              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-white/10 text-stone-200"
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-white/10 text-white/90"
             >
               Administrator Scope
             </button>
@@ -256,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSwitchUser('organizer1');
                 setProfileDropdownOpen(false);
               }}
-              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-white/10 text-stone-200"
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-white/10 text-white/90"
             >
               Event Organizer Scope
             </button>
@@ -265,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSwitchUser('student1');
                 setProfileDropdownOpen(false);
               }}
-              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-white/10 text-stone-200"
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-white/10 text-white/90"
             >
               Student / Participant Scope
             </button>
@@ -274,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onLogout();
                 setProfileDropdownOpen(false);
               }}
-              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-rose-950/60 text-rose-300 border-t border-[#02521c] mt-1 flex items-center gap-1.5"
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-rose-950/60 text-rose-300 border-t border-white/10 mt-1 flex items-center gap-1.5"
             >
               <LogOut size={13} />
               Sign Out
@@ -284,16 +248,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div
           onClick={() => (currentUser ? setProfileDropdownOpen(!profileDropdownOpen) : onOpenLogin())}
-          className="bg-[#001a0a]/90 hover:bg-[#001a0a] p-2.5 rounded-xl border border-[#02491a] flex items-center justify-between cursor-pointer transition-colors"
+          className="bg-white/10 hover:bg-white/15 p-2.5 rounded-xl flex items-center justify-between cursor-pointer transition-colors"
         >
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex flex-col items-center shrink-0">
-              <div className="w-8 h-8 rounded-full bg-[#02681E] border border-emerald-400/40 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+            <div className="relative shrink-0">
+              <div className="w-8 h-8 rounded-full bg-white text-[#00491E] flex items-center justify-center font-bold text-xs">
                 {currentUser?.full_name ? currentUser.full_name[0].toUpperCase() : 'M'}
               </div>
-              <span className="text-[7px] font-black text-emerald-400 uppercase tracking-tighter leading-none mt-0.5">
-                ONLINE
-              </span>
+              <span
+                className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#00491E]"
+                title="Online"
+              />
             </div>
 
             {!collapsed && (
@@ -301,19 +266,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="text-xs font-bold text-white truncate">
                   {currentUser?.full_name || 'Maria Dela Cruz'}
                 </div>
-                <div className="text-[10px] text-stone-400 truncate">
+                <div className="text-[10px] text-white/60 truncate">
                   {currentUser?.email || 'admin@cmu.edu.ph'}
                 </div>
-                <div className="text-[9px] font-black text-amber-400 tracking-wider uppercase mt-0.5">
+                <div className="text-[9px] font-bold text-[#FFC600] tracking-wider uppercase mt-0.5">
                   {currentUser?.role || 'ADMIN'}
                 </div>
               </div>
             )}
           </div>
 
-          {!collapsed && (
-            <ChevronDown size={14} className="text-stone-400 shrink-0 ml-1" />
-          )}
+          {!collapsed && <ChevronDown size={14} className="text-white/60 shrink-0 ml-1" />}
         </div>
       </div>
     </aside>

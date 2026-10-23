@@ -29,8 +29,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <div className="no-print relative z-20">
-      {/* Header bar with pattern */}
-      <header className="bg-cmu-header-pattern bg-[#00220d] text-white px-6 py-4 flex items-center justify-between border-b border-[#013f19]">
+      <header className="bg-[#003a17] text-white px-6 h-20 flex items-center justify-between">
         {/* Left: Workspace Title & System Subtitle */}
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight leading-tight">
@@ -47,7 +46,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="relative">
             <button
               onClick={() => setNotificationOpen(!notificationOpen)}
-              className="w-10 h-10 rounded-full bg-[#003816] hover:bg-[#00491E] border border-[#02681E] flex items-center justify-center text-stone-200 hover:text-white transition-colors relative"
+              className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-stone-200 hover:text-white transition-colors relative"
               title="Recent Notifications"
             >
               <Bell size={18} />
@@ -95,16 +94,16 @@ export const TopBar: React.FC<TopBarProps> = ({
             <div className="relative">
               <button
                 onClick={() => setScopeDropdownOpen(!scopeDropdownOpen)}
-                className="flex items-center gap-2 bg-[#001f0c] hover:bg-[#002a11] border border-[#02681E] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs"
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors"
               >
-                <Shield size={15} className="text-emerald-400" />
+                <Shield size={15} className="text-[#FFC600]" />
                 <span>{getRoleLabel()}</span>
-                <ChevronDown size={14} className="text-stone-400" />
+                <ChevronDown size={14} className="text-white/60" />
               </button>
 
               {scopeDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-[#00220d] border border-[#02681E] rounded-xl shadow-2xl py-1 text-xs text-white z-50 overflow-hidden">
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-amber-400 uppercase tracking-wider border-b border-[#013f19]">
+                <div className="absolute right-0 mt-2 w-56 bg-[#003a17] border border-white/10 rounded-xl shadow-2xl py-1 text-xs text-white z-50 overflow-hidden">
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-white/60 uppercase tracking-wider border-b border-white/10">
                     Select Operating Role
                   </div>
                   <button
@@ -150,8 +149,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </header>
 
-      {/* Solid Yellow/Gold Accent Separator Line (matching screenshot) */}
-      <div className="h-1 bg-[#FFC600] w-full shadow-xs" />
+      <div className="h-1 bg-[#FFC600] w-full" />
     </div>
   );
 };
