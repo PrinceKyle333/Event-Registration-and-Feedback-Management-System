@@ -80,6 +80,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   };
 
   const registeredEventIds = myRegistrations.map((r) => r.event_id);
+  // Students only see events an admin has approved
+  const approvedEvents = events.filter((e) => e.approval_status === 'approved');
 
   return (
     <div className="space-y-6">
@@ -96,12 +98,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </p>
             </div>
             <span className="whitespace-nowrap text-xs font-mono font-bold text-[#00491E] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-              {events.filter((e) => e.approval_status === 'approved').length} Approved Events
+              {approvedEvents.length} Approved Events
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((evt) => (
+            {approvedEvents.map((evt) => (
               <EventCard
                 key={evt.event_id}
                 event={evt}
@@ -112,6 +114,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               />
             ))}
           </div>
+
+          {approvedEvents.length === 0 && (
+            <div className="bg-white p-10 rounded-2xl border border-stone-200 text-center text-sm text-stone-500">
+              No approved events are open for registration right now.
+            </div>
+          )}
         </div>
       )}
 
