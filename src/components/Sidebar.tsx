@@ -215,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <img
             src="/cmu-logo.png"
             alt="CMU logo"
-            className={`${collapsed ? 'w-8 h-8' : 'w-11 h-11'} object-contain shrink-0`}
+            className={`logo-tilt ${collapsed ? 'w-8 h-8' : 'w-11 h-11'} object-contain shrink-0`}
           />
           {!collapsed && (
             <div className="flex flex-col truncate">

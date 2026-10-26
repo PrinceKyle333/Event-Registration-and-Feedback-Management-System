@@ -12,12 +12,14 @@ import {
   GraduationCap,
   Briefcase,
   LogIn,
+  X,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { EventItem, AdminDashboardStats } from '../types';
+import { EventItem, AdminDashboardStats, User } from '../types';
+import { AuthForm, AuthMode } from './LoginModal';
 
 interface LandingPageProps {
-  onSignIn: () => void;
+  onLoginSuccess: (user: User) => void;
   onQuickLogin: (username: string) => void;
 }
 
@@ -52,8 +54,9 @@ const ROLES = [
 const formatDate = (date: string) =>
   new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onQuickLogin }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess, onQuickLogin }) => {
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
 
   useEffect(() => {
@@ -70,13 +73,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onQuickLogin
 
   const scrollToEvents = () => document.getElementById('upcoming-events')?.scrollIntoView({ behavior: 'smooth' });
 
+  // Opens the sign-in form inside the hero instead of a modal
+  const onSignIn = () => {
+    setAuthMode((mode) => mode ?? 'login');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div className="min-h-screen bg-[#EEF2F6] font-sans-cmu text-stone-800 antialiased">
       {/* Top navigation */}
       <header className="bg-[#003a17] text-white sticky top-0 z-30 border-b-4 border-[#FFC600]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <img src="/cmu-logo.png" alt="CMU logo" className="w-9 h-9 object-contain shrink-0" />
+            <img src="/cmu-logo.png" alt="CMU logo" className="logo-tilt w-9 h-9 object-contain shrink-0" />
             <div className="min-w-0">
               <div className="font-serif-cmu font-bold text-lg leading-none">CMU Event</div>
               <div className="text-[9px] font-black text-[#FFC600] tracking-[0.2em] uppercase mt-0.5 truncate">
@@ -104,8 +113,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onQuickLogin
 
       {/* Hero */}
       <section className="bg-cmu-pattern text-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 grid lg:grid-cols-[1fr_auto] gap-12 items-center">
+        <div
+          className={`max-w-6xl mx-auto px-4 sm:px-6 grid items-center ${
+            authMode
+              ? 'py-12 sm:py-16 gap-10 lg:grid-cols-[1fr_440px]'
+              : 'py-16 sm:py-24 gap-12 lg:grid-cols-[1fr_auto]'
+          }`}
+        >
           <div className="max-w-2xl">
+            {authMode && (
+              <img
+                src="/cmu-logo.png"
+                alt="CMU logo"
+                className="logo-tilt w-20 h-20 sm:w-24 sm:h-24 object-contain drop-shadow-2xl mb-6 animate-auth-in"
+              />
+            )}
             <span className="text-[11px] font-black tracking-[0.2em] uppercase text-[#FFC600]">
               Central Mindanao University
             </span>
@@ -117,13 +139,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onQuickLogin
               registrations, attendance, and anonymous evaluations with instant reports.
             </p>
             <div className="flex flex-wrap gap-3 mt-8">
-              <button
-                onClick={onSignIn}
-                className="px-6 py-3 bg-[#FFC600] hover:bg-amber-400 text-stone-950 text-sm font-bold rounded-xl flex items-center gap-2"
-              >
-                Get Started
-                <ArrowRight size={16} />
-              </button>
+              {!authMode && (
+                <button
+                  onClick={onSignIn}
+                  className="px-6 py-3 bg-[#FFC600] hover:bg-amber-400 text-stone-950 text-sm font-bold rounded-xl flex items-center gap-2"
+                >
+                  Get Started
+                  <ArrowRight size={16} />
+                </button>
+              )}
               <button
                 onClick={scrollToEvents}
                 className="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm font-bold rounded-xl"
@@ -132,11 +156,37 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onQuickLogin
               </button>
             </div>
           </div>
-          <img
-            src="/cmu-logo.png"
-            alt=""
-            className="hidden lg:block w-64 h-64 object-contain drop-shadow-2xl"
-          />
+
+          {authMode ? (
+            <div className="bg-white text-stone-800 rounded-2xl shadow-2xl border-t-4 border-[#FFC600] p-6 sm:p-8 animate-auth-in">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="font-serif-cmu text-2xl font-bold text-[#00491E]">
+                    {authMode === 'register' ? 'Create University Account' : 'CMU Portal Login'}
+                  </h2>
+                  <p className="text-xs text-stone-500 mt-1">
+                    {authMode === 'register'
+                      ? 'Register as a student or organizer to join campus events.'
+                      : 'Sign in to register for events and submit evaluations.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setAuthMode(null)}
+                  aria-label="Close sign-in form"
+                  className="text-stone-400 hover:text-stone-700 p-1 -m-1 shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <AuthForm mode={authMode} onModeChange={setAuthMode} onLoginSuccess={onLoginSuccess} />
+            </div>
+          ) : (
+            <img
+              src="/cmu-logo.png"
+              alt=""
+              className="logo-tilt hidden lg:block w-64 h-64 object-contain drop-shadow-2xl"
+            />
+          )}
         </div>
 
         {/* Live figures from the database */}
@@ -278,7 +328,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onQuickLogin
       <footer className="bg-[#003a17] text-white/60 text-xs">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <img src="/cmu-logo.png" alt="" className="w-6 h-6 object-contain" />
+            <img src="/cmu-logo.png" alt="" className="logo-tilt w-6 h-6 object-contain" />
             <span>Central Mindanao University · Event Registration &amp; Evaluation System</span>
           </div>
           <div className="flex items-center gap-1.5">

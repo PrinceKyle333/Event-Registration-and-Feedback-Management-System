@@ -214,14 +214,10 @@ export default function App() {
   if (!currentUser) {
     if (loading) return <div className="min-h-screen bg-[#EEF2F6]" />;
     return (
-      <>
-        <LandingPage onSignIn={() => setIsLoginOpen(true)} onQuickLogin={handleSwitchUser} />
-        <LoginModal
-          isOpen={isLoginOpen}
-          onClose={() => setIsLoginOpen(false)}
-          onLoginSuccess={(u) => startSession(u, `Welcome, ${u.full_name}`)}
-        />
-      </>
+      <LandingPage
+        onLoginSuccess={(u) => startSession(u, `Welcome, ${u.full_name}`)}
+        onQuickLogin={handleSwitchUser}
+      />
     );
   }
 

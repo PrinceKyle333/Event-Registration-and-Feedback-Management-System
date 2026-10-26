@@ -35,6 +35,24 @@
   background-size: 69.28px 120px;
 }
 
+/* CMU logo: quick tilt on hover, then settles back */
+@keyframes logo-tilt {
+  0% { transform: rotate(0deg); }
+  35% { transform: rotate(-10deg); }
+  70% { transform: rotate(4deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.logo-tilt:hover {
+  animation: logo-tilt 0.5s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-tilt:hover {
+    animation: none;
+  }
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -66,4 +84,14 @@
   .print-page-break {
     page-break-before: always;
   }
+}
+
+/* Landing page sign-in card and logo entrance */
+@keyframes auth-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-auth-in {
+  animation: auth-in 0.35s ease-out;
 }
