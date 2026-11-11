@@ -40,6 +40,18 @@ export interface EventReportRow {
   average_rating: number | null;
 }
 
+export interface EventRanking {
+  rank: number;
+  event_id: number;
+  event_name: string;
+  department: string;
+  average_rating: number;
+  interpretation: string;
+  evaluation_count: number;
+  attendance_rate_percent: number;
+  response_rate_percent: number;
+}
+
 export interface EventItem {
   event_id: number;
   event_name: string;

@@ -20,10 +20,10 @@ import { StudentRegistrationsView } from './components/StudentRegistrationsView'
 import { StudentPortal } from './components/StudentPortal';
 import { LoginModal } from './components/LoginModal';
 import { LandingPage } from './components/LandingPage';
-import { api, setAuthUserId } from './services/api';
+import { api, setAuthUserId, setAuthToken, getAuthToken } from './services/api';
 import { EventItem, User, Registration, AdminDashboardStats } from './types';
 
-const SESSION_KEY = 'cmu-event-session';
+const SESSION_KEY = 'cmu-event-token'; // stores the JWT so a refresh keeps you signed in
 
 const homeModuleFor = (role: User['role']) =>
   role === 'admin' ? 'admin-dashboard' : role === 'organizer' ? 'org-dashboard' : 'stu-listing';
@@ -60,20 +60,25 @@ export default function App() {
     setLoading(true);
     try {
       // Restore the previous session so a page refresh keeps you signed in; otherwise show the landing page
-      let savedId: number | null = null;
+      let savedToken: string | null = null;
       try {
-        savedId = Number(localStorage.getItem(SESSION_KEY)) || null;
+        savedToken = localStorage.getItem(SESSION_KEY);
       } catch {
-        savedId = null;
+        savedToken = null;
       }
-      if (savedId) {
-        setAuthUserId(savedId);
-        const user = await api.getCurrentUser();
+      if (savedToken) {
+        setAuthToken(savedToken);
+        const user = await api.getCurrentUser(); // server verifies the token; expired tokens return null
         if (user && user.status !== 'inactive') {
           startSession(user);
           return;
         }
-        setAuthUserId(null);
+        setAuthToken(null);
+        try {
+          localStorage.removeItem(SESSION_KEY);
+        } catch {
+          /* nothing stored */
+        }
       }
       loadEvents();
     } finally {
@@ -85,7 +90,8 @@ export default function App() {
     setCurrentUser(user);
     setAuthUserId(user.user_id);
     try {
-      localStorage.setItem(SESSION_KEY, String(user.user_id));
+      const token = getAuthToken();
+      if (token) localStorage.setItem(SESSION_KEY, token);
     } catch {
       /* session just won't survive a refresh */
     }
@@ -139,6 +145,7 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setAuthUserId(null);
+    setAuthToken(null);
     setMyRegistrations([]);
     try {
       localStorage.removeItem(SESSION_KEY);

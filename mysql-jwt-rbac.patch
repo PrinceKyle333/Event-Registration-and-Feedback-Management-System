@@ -1,0 +1,3229 @@
+From b49a7fdf32df9607f9e69a4ac228f32a99be1545 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 15:40:07 +0800
+Subject: [PATCH] Move data to MySQL, add JWT auth and server-side role checks,
+ fix organizer views, add event rankings
+
+---
+ .env.example                          |  11 +-
+ README.md                             | 112 ++--
+ database/event_evaluation_system.sql  |  72 +--
+ package-lock.json                     | 182 ++++--
+ package.json                          |   6 +-
+ server.ts                             | 578 ++++++++---------
+ server/auth.ts                        |  92 +++
+ server/repository.ts                  | 858 ++++++++++++++++++++++++++
+ server/reset-db.ts                    |  25 +-
+ server/{db.ts => seed-data.ts}        |  24 +-
+ src/App.tsx                           |  27 +-
+ src/components/AdminPanel.tsx         |   2 +
+ src/components/EventRankingsTable.tsx |  61 ++
+ src/components/OrganizerPanel.tsx     |  42 +-
+ src/services/api.ts                   |  26 +-
+ src/types/index.ts                    |  12 +
+ 16 files changed, 1597 insertions(+), 533 deletions(-)
+ create mode 100644 server/auth.ts
+ create mode 100644 server/repository.ts
+ rename server/{db.ts => seed-data.ts} (98%)
+ create mode 100644 src/components/EventRankingsTable.tsx
+
+diff --git a/.env.example b/.env.example
+index 132c908..51f07c6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -4,12 +4,13 @@
+ # Port for Express API and Vite Dev Server
+ PORT=3000
+ 
+-# Session/JWT Secret for Authentication
+-JWT_SECRET="cmu_sia_secret_key_2026_bsit4b"
++# Secret used to sign login tokens (JWT). Use a long random value and never commit the real one.
++JWT_SECRET="change-this-to-a-long-random-secret"
++# How long a login stays valid
++JWT_EXPIRES_IN="8h"
+ 
+-# MySQL Database Configuration
+-# If provided and MySQL is running, system connects to MySQL.
+-# Otherwise, built-in persistent relational JSON database engine is automatically used.
++# MySQL Database Configuration (required)
++# The server creates the database and tables on first start and inserts demo data.
+ MYSQL_HOST="localhost"
+ MYSQL_PORT=3306
+ MYSQL_USER="root"
+diff --git a/README.md b/README.md
+index 3a2b555..2723ec9 100644
+--- a/README.md
++++ b/README.md
+@@ -45,12 +45,10 @@ Dynamic survey questions fetched via REST API:
+ 
+ ## 2. Technology Stack
+ 
+-- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Lucide React, Motion.
+-- **Backend**: Express REST API endpoints running alongside Vite middleware (`server.ts`).
+-- **Database**:
+-  - MySQL with schema `event_evaluation_system` (SQL file in `/database/event_evaluation_system.sql`).
+-  - Built-in zero-config persistent storage layer with ACID transactions, relational integrity, and auto-seeding.
+-  - Live export endpoint `GET /api/system/export-sql`.
++- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Motion.
++- **Backend**: Node.js + Express REST API (`server.ts`), served on the same port as the Vite dev server.
++- **Database**: MySQL (or MariaDB, e.g. XAMPP) through `mysql2/promise` with parameterized queries and transactions (`server/repository.ts`).
++- **Security**: bcrypt password hashing (`bcryptjs`), JSON Web Tokens (`jsonwebtoken`), and role-based access control middleware (`server/auth.ts`).
+ 
+ ---
+ 
+@@ -62,16 +60,18 @@ npm install
+ ```
+ 
+ ### Step 2: Configure Environment
+-Copy `.env.example` to `.env`:
++Copy `.env.example` to `.env` and set your MySQL user/password and a long random `JWT_SECRET`:
+ ```bash
+ cp .env.example .env
+ ```
+ 
+-### Step 3: Initialize MySQL Database
+-Open terminal or MySQL workbench and execute:
+-```bash
+-mysql -u root -p < database/event_evaluation_system.sql
+-```
++### Step 3: Start MySQL
++Start MySQL (XAMPP, MySQL Workbench, or a MySQL service). You do **not** need to import anything:
++on first start the server creates the `event_evaluation_system` database and tables from
++`database/event_evaluation_system.sql` and inserts the demo data.
++
++> Upgrading from an older version? Drop the old database once so the new schema is created:
++> `DROP DATABASE event_evaluation_system;`
+ 
+ ### Step 4: Run the Application
+ ```bash
+@@ -79,6 +79,11 @@ npm run dev
+ ```
+ Access the application at `http://localhost:3000`.
+ 
++To clear all data and reload the demo dataset at any time:
++```bash
++npm run db:reset
++```
++
+ ---
+ 
+ ## 4. Default Demo Accounts
+@@ -97,30 +102,59 @@ You can also use the **Quick Demo Role Switcher** in the top navigation or login
+ 
+ ## 5. REST API Documentation
+ 
+-### Events API
+-- `GET /api/events` – List approved and available events. Query params: `status`, `department`, `search`, `all=true` (admin/organizer).
+-- `GET /api/events/:id` – Retrieve complete details for a single event.
+-- `POST /api/events` – Create a new event (organizer/admin).
+-- `PUT /api/events/:id` – Update an existing event.
+-- `PATCH /api/events/:id/approval` – Approve or reject an event (`status`: `'approved'|'rejected'`, `rejection_reason`).
+-- `PATCH /api/events/:id/status` – Activate/deactivate an event for evaluation (`is_active`: `1|0`).
+-- `DELETE /api/events/:id` – Delete an event.
+-
+-### Registration API
+-- `POST /api/events/:id/register` – Register the current student for an event.
+-- `GET /api/events/:id/registrations` – View registration list & attendance roster.
+-- `PATCH /api/registrations/:id/attendance` – Record participant attendance (`attendance_status`: `'attended'|'absent'|'registered'`).
+-- `DELETE /api/registrations/:id` – Cancel registration.
+-
+-### Survey & Evaluation API
+-- `GET /api/survey/sections` – Retrieve survey sections and questions.
+-- `POST /api/events/:id/evaluations` – Submit evaluation responses and optional comments (atomic transaction).
+-- `GET /api/events/:id/evaluations` – Retrieve evaluation responses (authorized roles).
+-- `GET /api/events/:id/evaluation-report` – Generate calculated statistical summary with section averages & qualitative interpretation.
+-
+-### Admin & Reporting API
+-- `GET /api/admin/dashboard` – System-wide KPI counters (events, registrations, attendance rate, evaluations).
+-- `GET /api/reports/events` – Comprehensive events report with metrics.
+-- `GET /api/reports/registrations` – Registrations breakdown across departments.
+-- `GET /api/reports/evaluations` – Evaluation satisfaction distribution and rankings.
+-- `GET /api/system/export-sql` – Download current MySQL database dump.
++All endpoints are under `/api` and exchange JSON. After login, send the token on every request:
++`Authorization: Bearer <token>`. Missing or invalid tokens return **401**; a valid token with the wrong role returns **403**.
++Organizers can only manage events they created.
++
++### Authentication & Users
++| Method | Endpoint | Access | Purpose |
++| --- | --- | --- | --- |
++| POST | `/api/auth/login` | Public | Check bcrypt password, return JWT + user |
++| POST | `/api/auth/register` | Public | Create a student or organizer account (never admin) |
++| GET | `/api/auth/me` | Logged in | Current user from the token |
++| PUT | `/api/users/profile` | Logged in | Update own profile/password (not role) |
++| GET, POST | `/api/users` | Admin | List / create users |
++| PUT | `/api/users/:id` | Admin | Update a user |
++| PATCH | `/api/users/:id/status` | Admin | Activate / deactivate an account |
++
++### Events
++| Method | Endpoint | Access | Purpose |
++| --- | --- | --- | --- |
++| GET | `/api/events` | Public | Approved events (`all=true` adds pending/rejected for admin, own proposals for organizers); `search`, `department` filters |
++| GET | `/api/events/:id` | Public (approved) | Event details with live counts |
++| POST | `/api/events` | Organizer, Admin | Organizer proposal starts **pending**; admin-created events are approved |
++| PUT | `/api/events/:id` | Owner organizer, Admin | Edit descriptive fields |
++| PATCH | `/api/events/:id/approval` | Admin | Approve or reject (`rejection_reason`) |
++| PATCH | `/api/events/:id/status` | Owner organizer, Admin | Open/close evaluation (`is_active`) |
++| DELETE | `/api/events/:id` | Owner organizer, Admin | Delete (registrations and evaluations cascade) |
++
++### Registration & Attendance
++| Method | Endpoint | Access | Purpose |
++| --- | --- | --- | --- |
++| POST | `/api/events/:id/register` | Student | Register (checks approval, deadline, capacity, duplicates in a transaction) |
++| GET | `/api/my-registrations` | Logged in | Own registrations with attendance and evaluation status |
++| GET | `/api/events/:id/registrations` | Owner organizer, Admin | Live roster |
++| PATCH | `/api/registrations/:id/attendance` | Owner organizer, Admin | `attended`, `absent`, or `registered` |
++| DELETE | `/api/registrations/:id` | Student (own), Owner organizer, Admin | Cancel registration |
++
++### Survey & Evaluation
++| Method | Endpoint | Access | Purpose |
++| --- | --- | --- | --- |
++| GET | `/api/survey/sections` | Logged in | 4 sections and their questions |
++| POST, PUT | `/api/survey/sections[/:id]` | Admin | Manage sections |
++| POST, PUT, DELETE | `/api/survey/questions[/:id]` | Admin | Manage questions |
++| POST | `/api/events/:id/evaluations` | Student | Submit 1–5 ratings + optional comment; only if marked attended, once per event (transaction) |
++| GET | `/api/my-evaluations` | Logged in | Own submitted evaluations |
++| GET | `/api/events/:id/evaluation-report` | Owner organizer, Admin | Section and question means, interpretation, response rate, anonymous comments |
++
++### Dashboard, Reports & System
++| Method | Endpoint | Access | Purpose |
++| --- | --- | --- | --- |
++| GET | `/api/admin/dashboard` | Public | Campus-wide totals (no personal data) |
++| GET | `/api/reports/events` | Admin (all), Organizer (own) | Per-event registrations, attendance, evaluations, average rating |
++| GET | `/api/reports/rankings` | Admin | Evaluated events ranked by overall mean |
++| GET | `/api/reports/registrations` | Admin | Registrations and attendance by department |
++| GET | `/api/reports/evaluations` | Admin | Evaluation count and average per event |
++| GET | `/api/activity`, PATCH `/api/activity/seen` | Logged in | Activity log / notifications for the user's scope |
++| GET | `/api/system/export-sql` | Admin | Download schema + live data as SQL |
++| POST | `/api/system/reset-demo` | Admin | Reload the demo dataset |
+diff --git a/database/event_evaluation_system.sql b/database/event_evaluation_system.sql
+index 65ff52d..285ac17 100644
+--- a/database/event_evaluation_system.sql
++++ b/database/event_evaluation_system.sql
+@@ -59,9 +59,10 @@ CREATE TABLE IF NOT EXISTS events (
+     rejection_reason TEXT NULL,
+     is_active TINYINT(1) DEFAULT 1,
+     admin_id INT NULL,
++    image_url VARCHAR(500) NULL,
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+-    FOREIGN KEY (admin_id) REFERENCES admins(admin_id) ON DELETE SET NULL,
++    FOREIGN KEY (admin_id) REFERENCES users(user_id) ON DELETE SET NULL,
+     FOREIGN KEY (organizer_id) REFERENCES users(user_id) ON DELETE SET NULL,
+     INDEX idx_event_date (event_date),
+     INDEX idx_approval (approval_status),
+@@ -159,69 +160,8 @@ CREATE TABLE IF NOT EXISTS activity_logs (
+ );
+ 
+ -- ==============================================================================
+--- SEED DATA: Survey Sections
++-- SEED DATA
++-- Demo accounts, events, registrations, survey sections and the 20 survey
++-- questions are inserted by the application on first start (or with
++-- `npm run db:reset`) so that every password is a real bcrypt hash.
+ -- ==============================================================================
+-INSERT IGNORE INTO survey_sections
+-    (section_id, section_name, section_description, display_order)
+-VALUES
+-(1, 'Accommodation and Venue',
+- 'Evaluation of the venue facilities and accessibility', 1),
+-(2, 'Spokesperson / Speaker Evaluation',
+- 'Assessment of speaker performance and content delivery', 2),
+-(3, 'Food and Refreshments',
+- 'Feedback on catering and refreshments provided', 3),
+-(4, 'Event Coordination and Overall Experience',
+- 'General satisfaction with event organization and experience', 4);
+-
+--- ==============================================================================
+--- SEED DATA: Survey Questions (Idempotent Insert)
+--- ==============================================================================
+-INSERT INTO survey_questions
+-    (section_id, question_text, is_required)
+-SELECT s.section_id, q.question_text, TRUE
+-FROM (
+-    SELECT 1 AS section_id,
+-    'Was the venue easily accessible and clearly signposted?' AS question_text
+-    UNION ALL SELECT 1, 'Was the accommodation (if provided) comfortable and clean?'
+-    UNION ALL SELECT 1, 'Were restroom facilities clean and well-maintained?'
+-    UNION ALL SELECT 1, 'Was the venue appropriate for the number of participants?'
+-    UNION ALL SELECT 1, 'Did you feel safe and secure throughout the event?'
+-    UNION ALL SELECT 2, 'How would you rate the speaker/s knowledge and expertise?'
+-    UNION ALL SELECT 2, 'Was the speaker engaging and effective in delivering their message?'
+-    UNION ALL SELECT 2, 'Did the speaker encourage questions and interaction?'
+-    UNION ALL SELECT 2, 'Were the topics covered relevant and well-organized?'
+-    UNION ALL SELECT 2, 'Did the speaker stay on topic and manage time well?'
+-    UNION ALL SELECT 3, 'Were food and refreshments served on time?'
+-    UNION ALL SELECT 3, 'Was there a variety of food options available (e.g., vegetarian, halal)?'
+-    UNION ALL SELECT 3, 'How would you rate the quality and taste of the food?'
+-    UNION ALL SELECT 3, 'Were dietary needs or restrictions considered?'
+-    UNION ALL SELECT 3, 'Was the serving area clean and organized?'
+-    UNION ALL SELECT 4, 'Was the event schedule followed properly?'
+-    UNION ALL SELECT 4, 'Were event staff and volunteers helpful and courteous?'
+-    UNION ALL SELECT 4, 'How would you rate the overall flow and organization of the event?'
+-    UNION ALL SELECT 4, 'Did the event meet your expectations?'
+-    UNION ALL SELECT 4, 'Would you recommend this event to others or attend again?'
+-) AS q
+-JOIN survey_sections s ON s.section_id = q.section_id
+-WHERE NOT EXISTS (
+-    SELECT 1
+-    FROM survey_questions existing
+-    WHERE existing.section_id = s.section_id
+-      AND existing.question_text = q.question_text
+-);
+-
+--- ==============================================================================
+--- SEED DATA: Initial Users (Passwords hashed using bcrypt with salt 10)
+--- Password for admin: admin123
+--- Password for organizer: organizer123
+--- Password for students: student123
+--- ==============================================================================
+-INSERT IGNORE INTO users (user_id, username, password, full_name, email, role, student_id, college_department) VALUES
+-(1, 'admin', '$2b$10$TKh8H1.PfQx37YgCzwiKb.KjQ50dpdp2eFvK18m17W4nSj6v9qV9W', 'Engr. Juan Dela Cruz', 'admin@cmu.edu.ph', 'admin', NULL, 'College of Information Sciences and Computing'),
+-(2, 'organizer1', '$2b$10$o8QkLpZ3M2y6rYjT0V6VNu9s9N3kK2Vn4Rk0D5k9X4m1H7s5V3t0O', 'Prof. Maria Santos', 'maria.santos@cmu.edu.ph', 'organizer', NULL, 'Department of Information Technology'),
+-(3, 'student1', '$2b$10$J7N0q4L3k9x9T1Y4V6b7Oe4W8kK2Vn4Rk0D5k9X4m1H7s5V3t0O', 'Prince Kyle Christian Reston', 's.reston.princekylechristian@cmu.edu.ph', 'student', '2023-BSIT-0428', 'BSIT 4B'),
+-(4, 'student2', '$2b$10$J7N0q4L3k9x9T1Y4V6b7Oe4W8kK2Vn4Rk0D5k9X4m1H7s5V3t0O', 'Alyssa Jean Ramos', 'alyssa.ramos@cmu.edu.ph', 'student', '2023-BSIT-0435', 'BSIT 4B'),
+-(5, 'student3', '$2b$10$J7N0q4L3k9x9T1Y4V6b7Oe4W8kK2Vn4Rk0D5k9X4m1H7s5V3t0O', 'Joshua Dave Flores', 'joshua.flores@cmu.edu.ph', 'student', '2023-BSIT-0442', 'BSIT 4B');
+-
+-INSERT IGNORE INTO admins (admin_id, username, password, full_name, email) VALUES
+-(1, 'admin', '$2b$10$TKh8H1.PfQx37YgCzwiKb.KjQ50dpdp2eFvK18m17W4nSj6v9qV9W', 'Engr. Juan Dela Cruz', 'admin@cmu.edu.ph');
+diff --git a/package-lock.json b/package-lock.json
+index 188a7c6..92d5eef 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -17,6 +17,7 @@
+         "canvas-confetti": "^1.9.4",
+         "dotenv": "^17.2.3",
+         "express": "^4.21.2",
++        "jsonwebtoken": "^9.0.3",
+         "lucide-react": "^0.546.0",
+         "motion": "^12.23.24",
+         "mysql2": "^3.24.6",
+@@ -26,6 +27,7 @@
+       },
+       "devDependencies": {
+         "@types/express": "^4.17.21",
++        "@types/jsonwebtoken": "^9.0.10",
+         "@types/node": "^22.14.0",
+         "@types/react": "^19.3.0",
+         "@types/react-dom": "^19.3.0",
+@@ -43,6 +45,7 @@
+       "cpu": [
+         "ppc64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -59,6 +62,7 @@
+       "cpu": [
+         "arm"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -75,6 +79,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -91,6 +96,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -107,6 +113,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -123,6 +130,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -139,6 +147,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -155,6 +164,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -171,6 +181,7 @@
+       "cpu": [
+         "arm"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -187,6 +198,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -203,6 +215,7 @@
+       "cpu": [
+         "ia32"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -219,6 +232,7 @@
+       "cpu": [
+         "loong64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -235,6 +249,7 @@
+       "cpu": [
+         "mips64el"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -251,6 +266,7 @@
+       "cpu": [
+         "ppc64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -267,6 +283,7 @@
+       "cpu": [
+         "riscv64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -283,6 +300,7 @@
+       "cpu": [
+         "s390x"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -299,6 +317,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -315,6 +334,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -331,6 +351,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -347,6 +368,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -363,6 +385,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -379,6 +402,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -395,6 +419,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -411,6 +436,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -427,6 +453,7 @@
+       "cpu": [
+         "ia32"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -443,6 +470,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -690,9 +718,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -709,9 +734,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -728,9 +750,6 @@
+       "cpu": [
+         "ppc64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -747,9 +766,6 @@
+       "cpu": [
+         "s390x"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -766,9 +782,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -785,9 +798,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -976,9 +986,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -995,9 +1002,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1014,9 +1018,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1033,9 +1034,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1190,6 +1188,17 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@types/jsonwebtoken": {
++      "version": "9.0.10",
++      "resolved": "https://registry.npmjs.org/@types/jsonwebtoken/-/jsonwebtoken-9.0.10.tgz",
++      "integrity": "sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/ms": "*",
++        "@types/node": "*"
++      }
++    },
+     "node_modules/@types/mime": {
+       "version": "1.3.5",
+       "resolved": "https://registry.npmjs.org/@types/mime/-/mime-1.3.5.tgz",
+@@ -1197,6 +1206,13 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@types/ms": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/@types/ms/-/ms-2.1.0.tgz",
++      "integrity": "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==",
++      "dev": true,
++      "license": "MIT"
++    },
+     "node_modules/@types/node": {
+       "version": "22.20.5",
+       "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.5.tgz",
+@@ -2615,6 +2631,34 @@
+         "bignumber.js": "^9.0.0"
+       }
+     },
++    "node_modules/jsonwebtoken": {
++      "version": "9.0.3",
++      "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
++      "integrity": "sha512-MT/xP0CrubFRNLNKvxJ2BYfy53Zkm++5bX9dtuPbqAeQpTVe0MQTFhao8+Cp//EmJp244xt6Drw/GVEGCUj40g==",
++      "license": "MIT",
++      "dependencies": {
++        "jws": "^4.0.1",
++        "lodash.includes": "^4.3.0",
++        "lodash.isboolean": "^3.0.3",
++        "lodash.isinteger": "^4.0.4",
++        "lodash.isnumber": "^3.0.3",
++        "lodash.isplainobject": "^4.0.6",
++        "lodash.isstring": "^4.0.1",
++        "lodash.once": "^4.0.0",
++        "ms": "^2.1.1",
++        "semver": "^7.5.4"
++      },
++      "engines": {
++        "node": ">=12",
++        "npm": ">=6"
++      }
++    },
++    "node_modules/jsonwebtoken/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
+     "node_modules/jwa": {
+       "version": "2.0.1",
+       "resolved": "https://registry.npmjs.org/jwa/-/jwa-2.0.1.tgz",
+@@ -2772,9 +2816,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2795,9 +2836,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2818,9 +2856,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2841,9 +2876,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2897,6 +2929,48 @@
+         "url": "https://opencollective.com/parcel"
+       }
+     },
++    "node_modules/lodash.includes": {
++      "version": "4.3.0",
++      "resolved": "https://registry.npmjs.org/lodash.includes/-/lodash.includes-4.3.0.tgz",
++      "integrity": "sha512-W3Bx6mdkRTGtlJISOvVD/lbqjTlPPUDTMnlXZFnVwi9NKJ6tiAk6LVdlhZMm17VZisqhKcgzpO5Wz91PCt5b0w==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isboolean": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/lodash.isboolean/-/lodash.isboolean-3.0.3.tgz",
++      "integrity": "sha512-Bz5mupy2SVbPHURB98VAcw+aHh4vRV5IPNhILUCsOzRmsTmSQ17jIuqopAentWoehktxGd9e/hbIXq980/1QJg==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isinteger": {
++      "version": "4.0.4",
++      "resolved": "https://registry.npmjs.org/lodash.isinteger/-/lodash.isinteger-4.0.4.tgz",
++      "integrity": "sha512-DBwtEWN2caHQ9/imiNeEA5ys1JoRtRfY3d7V9wkqtbycnAmTvRRmbHKDV4a0EYc678/dia0jrte4tjYwVBaZUA==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isnumber": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/lodash.isnumber/-/lodash.isnumber-3.0.3.tgz",
++      "integrity": "sha512-QYqzpfwO3/CWf3XP+Z+tkQsfaLL/EnUlXWVkIk5FUPc4sBdTehEqZONuyRt2P67PXAk+NXmTBcc97zw9t1FQrw==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isplainobject": {
++      "version": "4.0.6",
++      "resolved": "https://registry.npmjs.org/lodash.isplainobject/-/lodash.isplainobject-4.0.6.tgz",
++      "integrity": "sha512-oSXzaWypCMHkPC3NvBEaPHf0KsA5mvPrOPgQWDsbg8n7orZ290M0BmC/jgRZ4vcJ6DTAhjrsSYgdsW/F+MFOBA==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isstring": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/lodash.isstring/-/lodash.isstring-4.0.1.tgz",
++      "integrity": "sha512-0wJxfxH1wgO3GrbuP+dTTk7op+6L41QCXbGINEmD+ny/G/eCqGzxyCsh7159S+mgDDcoarnBw6PC1PS5+wUGgw==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.once": {
++      "version": "4.1.1",
++      "resolved": "https://registry.npmjs.org/lodash.once/-/lodash.once-4.1.1.tgz",
++      "integrity": "sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==",
++      "license": "MIT"
++    },
+     "node_modules/long": {
+       "version": "5.3.2",
+       "resolved": "https://registry.npmjs.org/long/-/long-5.3.2.tgz",
+@@ -3460,6 +3534,18 @@
+       "integrity": "sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==",
+       "license": "MIT"
+     },
++    "node_modules/semver": {
++      "version": "7.8.6",
++      "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.6.tgz",
++      "integrity": "sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==",
++      "license": "ISC",
++      "bin": {
++        "semver": "bin/semver.js"
++      },
++      "engines": {
++        "node": ">=10"
++      }
++    },
+     "node_modules/send": {
+       "version": "0.19.2",
+       "resolved": "https://registry.npmjs.org/send/-/send-0.19.2.tgz",
+@@ -4010,9 +4096,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -4033,9 +4116,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -4056,9 +4136,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -4079,9 +4156,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+diff --git a/package.json b/package.json
+index 6559f1d..0590fae 100644
+--- a/package.json
++++ b/package.json
+@@ -22,6 +22,7 @@
+     "canvas-confetti": "^1.9.4",
+     "dotenv": "^17.2.3",
+     "express": "^4.21.2",
++    "jsonwebtoken": "^9.0.3",
+     "lucide-react": "^0.546.0",
+     "motion": "^12.23.24",
+     "mysql2": "^3.24.6",
+@@ -30,6 +31,8 @@
+     "vite": "^8.3.0"
+   },
+   "devDependencies": {
++    "@types/express": "^4.17.21",
++    "@types/jsonwebtoken": "^9.0.10",
+     "@types/node": "^22.14.0",
+     "@types/react": "^19.3.0",
+     "@types/react-dom": "^19.3.0",
+@@ -37,7 +40,6 @@
+     "esbuild": "^0.28.0",
+     "tailwindcss": "^4.3.3",
+     "tsx": "^4.21.0",
+-    "typescript": "^7.0.2",
+-    "@types/express": "^4.17.21"
++    "typescript": "^7.0.2"
+   }
+ }
+diff --git a/server.ts b/server.ts
+index 35cde17..5ef3925 100644
+--- a/server.ts
++++ b/server.ts
+@@ -1,72 +1,78 @@
+-import express, { Request, Response, NextFunction } from 'express';
++import express, { Request, Response } from 'express';
+ import path from 'path';
+ import { createServer as createViteServer } from 'vite';
+ import bcrypt from 'bcryptjs';
+ import dotenv from 'dotenv';
+-import { db } from './server/db.ts';
+ 
+ dotenv.config();
+ 
++import { db } from './server/repository.ts';
++import { authenticate, requireAuth, requireRole, signToken } from './server/auth.ts';
++
+ const app = express();
+ const PORT = Number(process.env.PORT) || 3000;
+ const isProduction = process.env.NODE_ENV === 'production';
+ 
+ app.use(express.json());
+-
+-// Simple Auth middleware helper: in header x-user-id or session query
+-const getAuthenticatedUser = (req: Request) => {
+-  const userIdHeader = req.headers['x-user-id'] || req.query.auth_user_id;
+-  if (!userIdHeader) return null;
+-  const uid = Number(userIdHeader);
+-  return db.findUserById(uid) || null;
+-};
+-
+-const actorId = (req: Request) => getAuthenticatedUser(req)?.user_id ?? null;
+-const eventName = (id: number) => db.getEventById(id)?.event_name ?? `event #${id}`;
+-const userName = (id: number) => db.findUserById(id)?.full_name ?? `user #${id}`;
++// Every /api request passes through JWT verification; protected routes add requireAuth / requireRole
++app.use('/api', authenticate);
++
++const fail = (res: Response, error: any, status = 400) => res.status(status).json({ error: error?.message || String(error) });
++const eventName = async (id: number) => (await db.getEventById(id))?.event_name ?? `event #${id}`;
++const userName = async (id: number) => (await db.findUserById(id))?.full_name ?? `user #${id}`;
++
++/**
++ * Loads an event the current user is allowed to manage: admins manage every event,
++ * organizers only the events they created. Sends 404/403 and returns null otherwise.
++ */
++async function loadManagedEvent(req: Request, res: Response, eventId: number) {
++  const event = await db.getEventById(eventId);
++  if (!event) {
++    res.status(404).json({ error: 'Event not found' });
++    return null;
++  }
++  if (req.user!.role === 'organizer' && event.organizer_id !== req.user!.user_id) {
++    res.status(403).json({ error: 'You can only manage events that you organize' });
++    return null;
++  }
++  return event;
++}
+ 
+ // ============================================================================
+ // 1. AUTHENTICATION & USER MANAGEMENT API
+ // ============================================================================
+-app.post('/api/auth/login', (req: Request, res: Response) => {
++app.post('/api/auth/login', async (req: Request, res: Response) => {
+   try {
+     const { username, password } = req.body;
+     if (!username || !password) {
+       return res.status(400).json({ error: 'Username and password are required' });
+     }
+ 
+-    const user = db.findUserByUsername(username);
+-    if (!user) {
+-      return res.status(401).json({ error: 'Invalid username or password' });
+-    }
+-
+-    const isMatch = bcrypt.compareSync(password, user.password);
+-    if (!isMatch) {
++    const user = await db.findUserByUsername(username);
++    if (!user || !bcrypt.compareSync(password, user.password)) {
+       return res.status(401).json({ error: 'Invalid username or password' });
+     }
+     if (user.status === 'inactive') {
+       return res.status(403).json({ error: 'This account has been deactivated. Please contact the administrator.' });
+     }
+ 
+-    db.recordLogin(user.user_id);
++    await db.recordLogin(user.user_id);
+     const { password: _, ...safeUser } = user;
+-    return res.json({
+-      message: 'Login successful',
+-      user: safeUser,
+-    });
++    return res.json({ message: 'Login successful', token: signToken(safeUser), user: safeUser });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message || 'Login error' });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.post('/api/auth/register', (req: Request, res: Response) => {
++app.post('/api/auth/register', async (req: Request, res: Response) => {
+   try {
+     const { username, password, full_name, email, role, student_id, college_department } = req.body;
+     if (!username || !password || !full_name || !email) {
+       return res.status(400).json({ error: 'Username, password, full name, and email are required' });
+     }
+ 
+-    const createdUser = db.createUser({
++    // Self-registration can never create an admin account
++    const createdUser = await db.createUser({
+       username,
+       passwordPlain: password,
+       full_name,
+@@ -75,166 +81,149 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
+       student_id,
+       college_department,
+     });
+-    db.logActivity({ user_id: createdUser.user_id, action: 'account_registered', description: `Created a ${createdUser.role} account` });
++    await db.logActivity({ user_id: createdUser.user_id, action: 'account_registered', description: `Created a ${createdUser.role} account` });
+ 
+-    return res.status(201).json({
+-      message: 'Account created successfully',
+-      user: createdUser,
+-    });
++    return res.status(201).json({ message: 'Account created successfully', token: signToken(createdUser), user: createdUser });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message || 'Registration error' });
++    return fail(res, error);
+   }
+ });
+ 
+-app.get('/api/auth/me', (req: Request, res: Response) => {
+-  const user = getAuthenticatedUser(req);
+-  if (!user) {
+-    return res.status(401).json({ error: 'Not authenticated' });
+-  }
+-  const { password: _, ...safeUser } = user;
+-  return res.json({ user: safeUser });
++app.get('/api/auth/me', requireAuth, (req: Request, res: Response) => {
++  return res.json({ user: req.user });
+ });
+ 
+-app.get('/api/users', (req: Request, res: Response) => {
+-  const users = db.getAllUsers();
+-  return res.json({ users });
++app.get('/api/users', requireRole('admin'), async (_req: Request, res: Response) => {
++  try {
++    return res.json({ users: await db.getAllUsers() });
++  } catch (error: any) {
++    return fail(res, error, 500);
++  }
+ });
+ 
+-app.post('/api/users', (req: Request, res: Response) => {
++app.post('/api/users', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const { username, password, full_name, email, role, student_id, college_department } = req.body;
+     if (!username || !password || !full_name || !email) {
+       return res.status(400).json({ error: 'All primary fields required' });
+     }
+-    const created = db.createUser({
++    const created = await db.createUser({
+       username,
+       passwordPlain: password,
+       full_name,
+       email,
+-      role: role || 'student',
++      role: ['admin', 'organizer', 'student'].includes(role) ? role : 'student',
+       student_id,
+       college_department,
+     });
+-    db.logActivity({
+-      user_id: actorId(req),
++    await db.logActivity({
++      user_id: req.user!.user_id,
+       action: 'user_created',
+       description: `Created ${created.role} account for ${created.full_name}`,
+       target_user_id: created.user_id,
+     });
+     return res.status(201).json({ message: 'User account created', user: created });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+ // Must be registered before /api/users/:id, otherwise "profile" is treated as an id
+-app.put('/api/users/profile', (req: Request, res: Response) => {
++app.put('/api/users/profile', requireAuth, async (req: Request, res: Response) => {
+   try {
+-    const user = getAuthenticatedUser(req);
+-    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+-    const updated = db.updateUser(user.user_id, req.body);
+-    db.logActivity({ user_id: user.user_id, action: 'profile_updated', description: 'Updated their profile' });
++    const { role: _ignoredRole, ...changes } = req.body; // users cannot change their own role
++    const updated = await db.updateUser(req.user!.user_id, changes);
++    await db.logActivity({ user_id: req.user!.user_id, action: 'profile_updated', description: 'Updated their profile' });
+     return res.json({ message: 'Profile updated successfully', user: updated });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.put('/api/users/:id', (req: Request, res: Response) => {
++app.put('/api/users/:id', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+-    const updated = db.updateUser(id, req.body);
+-    db.logActivity({ user_id: actorId(req), action: 'user_updated', description: `Updated account of ${updated.full_name}`, target_user_id: id });
++    const updated = await db.updateUser(id, req.body);
++    await db.logActivity({ user_id: req.user!.user_id, action: 'user_updated', description: `Updated account of ${updated.full_name}`, target_user_id: id });
+     return res.json({ message: 'User account updated', user: updated });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.patch('/api/users/:id/status', (req: Request, res: Response) => {
++app.patch('/api/users/:id/status', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+-    const updated = db.toggleUserStatus(id);
+-    db.logActivity({
+-      user_id: actorId(req),
++    if (id === req.user!.user_id) {
++      return res.status(400).json({ error: 'You cannot deactivate your own account' });
++    }
++    const updated = await db.toggleUserStatus(id);
++    await db.logActivity({
++      user_id: req.user!.user_id,
+       action: updated.status === 'inactive' ? 'user_deactivated' : 'user_activated',
+       description: `${updated.status === 'inactive' ? 'Deactivated' : 'Activated'} account of ${updated.full_name}`,
+       target_user_id: id,
+     });
+     return res.json({ message: `User account is now ${updated.status || 'active'}`, user: updated });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.get('/api/my-evaluations', (req: Request, res: Response) => {
++app.get('/api/my-evaluations', requireAuth, async (req: Request, res: Response) => {
+   try {
+-    const user = getAuthenticatedUser(req);
+-    const uid = user ? user.user_id : Number(req.query.user_id);
+-    if (!uid) return res.status(400).json({ error: 'User ID required' });
+-    const evaluations = db.getUserEvaluations(uid);
+-    return res.json({ evaluations });
++    return res.json({ evaluations: await db.getUserEvaluations(req.user!.user_id) });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+ // ============================================================================
+ // 2. EVENTS API
+ // ============================================================================
+-app.get('/api/events', (req: Request, res: Response) => {
++// Public: guests and students only ever see approved events
++app.get('/api/events', async (req: Request, res: Response) => {
+   try {
+-    const all = req.query.all === 'true';
+-    const department = req.query.department as string;
+-    const search = req.query.search as string;
+-    const organizer_id = req.query.organizer_id ? Number(req.query.organizer_id) : undefined;
+-
+-    const events = db.getEvents({
+-      all,
+-      department,
+-      search,
+-      organizer_id,
++    const role = req.user?.role;
++    const wantsAll = req.query.all === 'true' && (role === 'admin' || role === 'organizer');
++    let events = await db.getEvents({
++      all: wantsAll,
++      department: req.query.department as string,
++      search: req.query.search as string,
++      organizer_id: req.query.organizer_id ? Number(req.query.organizer_id) : undefined,
+     });
+-
++    // Organizers see approved events plus their own proposals (pending or rejected)
++    if (wantsAll && role === 'organizer') {
++      events = events.filter((e) => e.approval_status === 'approved' || e.organizer_id === req.user!.user_id);
++    }
+     return res.json({ events });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.get('/api/events/:id', (req: Request, res: Response) => {
+-  const id = Number(req.params.id);
+-  const event = db.getEventById(id);
+-  if (!event) {
+-    return res.status(404).json({ error: 'Event not found' });
++app.get('/api/events/:id', async (req: Request, res: Response) => {
++  try {
++    const event = await db.getEventById(Number(req.params.id));
++    const canSeeUnapproved = req.user && (req.user.role === 'admin' || event?.organizer_id === req.user.user_id);
++    if (!event || (event.approval_status !== 'approved' && !canSeeUnapproved)) {
++      return res.status(404).json({ error: 'Event not found' });
++    }
++    return res.json({ event });
++  } catch (error: any) {
++    return fail(res, error, 500);
+   }
+-  return res.json({ event });
+ });
+ 
+-app.post('/api/events', (req: Request, res: Response) => {
++app.post('/api/events', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+-    const user = getAuthenticatedUser(req);
+-    const {
+-      event_name,
+-      event_date,
+-      department,
+-      description,
+-      venue,
+-      start_time,
+-      end_time,
+-      registration_deadline,
+-      capacity,
+-      image_url,
+-    } = req.body;
+-
++    const { event_name, event_date, department, description, venue, start_time, end_time, registration_deadline, capacity, image_url } = req.body;
+     if (!event_name || !event_date || !department || !description) {
+       return res.status(400).json({ error: 'Event name, date, department, and description are required' });
+     }
+ 
+-    const organizerId = user ? user.user_id : (Number(req.body.organizer_id) || 2);
+-    const isAdmin = user ? user.role === 'admin' : false;
+-
+-    const event = db.createEvent({
++    const isAdmin = req.user!.role === 'admin';
++    const event = await db.createEvent({
+       event_name,
+       event_date,
+       department,
+@@ -244,12 +233,12 @@ app.post('/api/events', (req: Request, res: Response) => {
+       end_time: end_time || '17:00:00',
+       registration_deadline: registration_deadline || null,
+       capacity: Number(capacity) || 150,
+-      organizer_id: organizerId,
++      organizer_id: req.user!.user_id,
+       is_admin: isAdmin,
+       image_url,
+     });
+-    db.logActivity({
+-      user_id: actorId(req),
++    await db.logActivity({
++      user_id: req.user!.user_id,
+       action: isAdmin ? 'event_published' : 'event_created',
+       description: `${isAdmin ? 'Published' : 'Submitted event proposal'} "${event.event_name}"`,
+       event_id: event.event_id,
+@@ -260,22 +249,23 @@ app.post('/api/events', (req: Request, res: Response) => {
+       event,
+     });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.put('/api/events/:id', (req: Request, res: Response) => {
++app.put('/api/events/:id', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+-    const updated = db.updateEvent(id, req.body);
+-    db.logActivity({ user_id: actorId(req), action: 'event_updated', description: `Updated details of "${updated.event_name}"`, event_id: id });
++    if (!(await loadManagedEvent(req, res, id))) return;
++    const updated = await db.updateEvent(id, req.body);
++    await db.logActivity({ user_id: req.user!.user_id, action: 'event_updated', description: `Updated details of "${updated.event_name}"`, event_id: id });
+     return res.json({ message: 'Event updated successfully', event: updated });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.patch('/api/events/:id/approval', (req: Request, res: Response) => {
++app.patch('/api/events/:id/approval', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+     const { status, rejection_reason } = req.body;
+@@ -283,343 +273,284 @@ app.patch('/api/events/:id/approval', (req: Request, res: Response) => {
+       return res.status(400).json({ error: 'Status must be approved or rejected' });
+     }
+ 
+-    const user = getAuthenticatedUser(req);
+-    const adminId = user ? user.user_id : 1;
+-
+-    const event = db.setEventApproval(id, status, adminId, rejection_reason);
+-    db.logActivity({
+-      user_id: adminId,
++    const event = await db.setEventApproval(id, status, req.user!.user_id, rejection_reason);
++    await db.logActivity({
++      user_id: req.user!.user_id,
+       action: status === 'approved' ? 'event_approved' : 'event_rejected',
+-      description:
+-        status === 'approved'
+-          ? `Approved event "${event.event_name}"`
+-          : `Rejected event "${event.event_name}": ${event.rejection_reason}`,
++      description: status === 'approved' ? `Approved event "${event.event_name}"` : `Rejected event "${event.event_name}": ${event.rejection_reason}`,
+       event_id: id,
+       target_user_id: event.organizer_id,
+     });
+-    return res.json({
+-      message: `Event proposal ${status} successfully`,
+-      event,
+-    });
++    return res.json({ message: `Event proposal ${status} successfully`, event });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.patch('/api/events/:id/status', (req: Request, res: Response) => {
++app.patch('/api/events/:id/status', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+     const { is_active } = req.body;
+     if (is_active === undefined) {
+       return res.status(400).json({ error: 'is_active parameter required (1 or 0)' });
+     }
++    if (!(await loadManagedEvent(req, res, id))) return;
+ 
+-    const event = db.setEventStatus(id, Number(is_active));
+-    db.logActivity({
+-      user_id: actorId(req),
++    const event = await db.setEventStatus(id, Number(is_active));
++    await db.logActivity({
++      user_id: req.user!.user_id,
+       action: event.is_active ? 'evaluation_opened' : 'evaluation_closed',
+       description: `${event.is_active ? 'Opened' : 'Closed'} evaluation for "${event.event_name}"`,
+       event_id: id,
+     });
+-    return res.json({
+-      message: `Event evaluation ${event.is_active ? 'activated' : 'deactivated'}`,
+-      event,
+-    });
++    return res.json({ message: `Event evaluation ${event.is_active ? 'activated' : 'deactivated'}`, event });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.delete('/api/events/:id', (req: Request, res: Response) => {
++app.delete('/api/events/:id', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+-    const name = eventName(id);
+-    const success = db.deleteEvent(id);
+-    if (!success) {
+-      return res.status(404).json({ error: 'Event not found' });
+-    }
+-    db.logActivity({ user_id: actorId(req), action: 'event_deleted', description: `Deleted event "${name}"` });
++    const event = await loadManagedEvent(req, res, id);
++    if (!event) return;
++    await db.deleteEvent(id);
++    await db.logActivity({ user_id: req.user!.user_id, action: 'event_deleted', description: `Deleted event "${event.event_name}"` });
+     return res.json({ message: 'Event deleted successfully' });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+ // ============================================================================
+ // 3. REGISTRATION & ATTENDANCE API
+ // ============================================================================
+-app.post('/api/events/:id/register', (req: Request, res: Response) => {
++app.post('/api/events/:id/register', requireRole('student'), async (req: Request, res: Response) => {
+   try {
+     const eventId = Number(req.params.id);
+-    const user = getAuthenticatedUser(req);
+-    const userId = user ? user.user_id : Number(req.body.user_id);
+-
+-    if (!userId) {
+-      return res.status(400).json({ error: 'Participant identification is required' });
+-    }
+-
+-    const reg = db.registerParticipant(eventId, userId);
+-    db.logActivity({ user_id: userId, action: 'event_registered', description: `Registered for "${eventName(eventId)}"`, event_id: eventId });
+-    return res.status(201).json({
+-      message: 'Registration confirmed successfully!',
+-      registration: reg,
+-    });
++    const userId = req.user!.user_id; // always the logged-in student, never a value from the request body
++    const reg = await db.registerParticipant(eventId, userId);
++    await db.logActivity({ user_id: userId, action: 'event_registered', description: `Registered for "${await eventName(eventId)}"`, event_id: eventId });
++    return res.status(201).json({ message: 'Registration confirmed successfully!', registration: reg });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.get('/api/events/:id/registrations', (req: Request, res: Response) => {
++app.get('/api/events/:id/registrations', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+     const eventId = Number(req.params.id);
+-    const registrations = db.getEventRegistrations(eventId);
+-    return res.json({ registrations });
++    if (!(await loadManagedEvent(req, res, eventId))) return;
++    return res.json({ registrations: await db.getEventRegistrations(eventId) });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.get('/api/my-registrations', (req: Request, res: Response) => {
++app.get('/api/my-registrations', requireAuth, async (req: Request, res: Response) => {
+   try {
+-    const user = getAuthenticatedUser(req);
+-    const userId = user ? user.user_id : Number(req.query.user_id);
+-    if (!userId) {
+-      return res.status(400).json({ error: 'User ID is required' });
+-    }
+-
+-    const registrations = db.getUserRegistrations(userId);
+-    return res.json({ registrations });
++    return res.json({ registrations: await db.getUserRegistrations(req.user!.user_id) });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.patch('/api/registrations/:id/attendance', (req: Request, res: Response) => {
++app.patch('/api/registrations/:id/attendance', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+     const regId = Number(req.params.id);
+     const { attendance_status } = req.body;
+     if (!['registered', 'attended', 'absent'].includes(attendance_status)) {
+       return res.status(400).json({ error: 'Invalid attendance status' });
+     }
++    const reg = await db.findRegistrationById(regId);
++    if (!reg) return res.status(404).json({ error: 'Registration record not found' });
++    if (!(await loadManagedEvent(req, res, reg.event_id))) return;
+ 
+-    const updated = db.updateAttendance(regId, attendance_status);
+-    db.logActivity({
+-      user_id: actorId(req),
++    const updated = await db.updateAttendance(regId, attendance_status);
++    await db.logActivity({
++      user_id: req.user!.user_id,
+       action: 'attendance_marked',
+-      description: `Marked ${userName(updated.user_id)} as ${attendance_status} at "${eventName(updated.event_id)}"`,
++      description: `Marked ${await userName(updated.user_id)} as ${attendance_status} at "${await eventName(updated.event_id)}"`,
+       event_id: updated.event_id,
+       target_user_id: updated.user_id,
+     });
+-    return res.json({
+-      message: `Attendance marked as ${attendance_status}`,
+-      registration: updated,
+-    });
++    return res.json({ message: `Attendance marked as ${attendance_status}`, registration: updated });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.delete('/api/registrations/:id', (req: Request, res: Response) => {
++app.delete('/api/registrations/:id', requireAuth, async (req: Request, res: Response) => {
+   try {
+     const regId = Number(req.params.id);
+-    const user = getAuthenticatedUser(req);
+-    const userId = user ? user.user_id : Number(req.query.user_id);
+-    const isAdminOrOrg = user ? (user.role === 'admin' || user.role === 'organizer') : false;
+-
+-    const reg = db.findRegistrationById(regId);
+-    db.cancelRegistration(regId, userId, isAdminOrOrg);
+-    if (reg) {
+-      db.logActivity({
+-        user_id: actorId(req),
+-        action: 'registration_cancelled',
+-        description: `Cancelled registration of ${userName(reg.user_id)} for "${eventName(reg.event_id)}"`,
+-        event_id: reg.event_id,
+-        target_user_id: reg.user_id,
+-      });
++    const reg = await db.findRegistrationById(regId);
++    if (!reg) return res.status(404).json({ error: 'Registration record not found' });
++
++    const user = req.user!;
++    let canManage = user.role === 'admin';
++    if (user.role === 'organizer') {
++      const event = await db.getEventById(reg.event_id);
++      canManage = event?.organizer_id === user.user_id;
+     }
++    await db.cancelRegistration(regId, user.user_id, canManage);
++    await db.logActivity({
++      user_id: user.user_id,
++      action: 'registration_cancelled',
++      description: `Cancelled registration of ${await userName(reg.user_id)} for "${await eventName(reg.event_id)}"`,
++      event_id: reg.event_id,
++      target_user_id: reg.user_id,
++    });
+     return res.json({ message: 'Registration cancelled successfully' });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+ // ============================================================================
+ // 4. SURVEY & EVALUATION API
+ // ============================================================================
+-app.get('/api/survey/sections', (req: Request, res: Response) => {
++app.get('/api/survey/sections', requireAuth, async (_req: Request, res: Response) => {
+   try {
+-    const sections = db.getSurveySectionsWithQuestions();
+-    return res.json({ sections });
++    return res.json({ sections: await db.getSurveySectionsWithQuestions() });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.post('/api/survey/sections', (req: Request, res: Response) => {
++app.post('/api/survey/sections', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const { section_name, section_description, display_order } = req.body;
+     if (!section_name) return res.status(400).json({ error: 'Section name is required' });
+-    const sec = db.createSurveySection({ section_name, section_description, display_order });
+-    db.logActivity({ user_id: actorId(req), action: 'survey_section_created', description: `Added survey section "${sec.section_name}"` });
++    const sec = await db.createSurveySection({ section_name, section_description, display_order });
++    await db.logActivity({ user_id: req.user!.user_id, action: 'survey_section_created', description: `Added survey section "${sec.section_name}"` });
+     return res.status(201).json({ section: sec });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.put('/api/survey/sections/:id', (req: Request, res: Response) => {
++app.put('/api/survey/sections/:id', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+-    const id = Number(req.params.id);
+-    const sec = db.updateSurveySection(id, req.body);
+-    db.logActivity({ user_id: actorId(req), action: 'survey_section_updated', description: `Updated survey section "${sec.section_name}"` });
++    const sec = await db.updateSurveySection(Number(req.params.id), req.body);
++    await db.logActivity({ user_id: req.user!.user_id, action: 'survey_section_updated', description: `Updated survey section "${sec.section_name}"` });
+     return res.json({ section: sec });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.post('/api/survey/questions', (req: Request, res: Response) => {
++app.post('/api/survey/questions', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const { section_id, question_text, is_required } = req.body;
+     if (!section_id || !question_text) {
+       return res.status(400).json({ error: 'section_id and question_text are required' });
+     }
+-    const q = db.createSurveyQuestion({ section_id: Number(section_id), question_text, is_required });
+-    db.logActivity({ user_id: actorId(req), action: 'survey_question_created', description: `Added survey question "${q.question_text}"` });
++    const q = await db.createSurveyQuestion({ section_id: Number(section_id), question_text, is_required });
++    await db.logActivity({ user_id: req.user!.user_id, action: 'survey_question_created', description: `Added survey question "${q.question_text}"` });
+     return res.status(201).json({ question: q });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.put('/api/survey/questions/:id', (req: Request, res: Response) => {
++app.put('/api/survey/questions/:id', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+-    const id = Number(req.params.id);
+-    const q = db.updateSurveyQuestion(id, req.body);
+-    db.logActivity({ user_id: actorId(req), action: 'survey_question_updated', description: `Updated survey question "${q.question_text}"` });
++    const q = await db.updateSurveyQuestion(Number(req.params.id), req.body);
++    await db.logActivity({ user_id: req.user!.user_id, action: 'survey_question_updated', description: `Updated survey question "${q.question_text}"` });
+     return res.json({ question: q });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.delete('/api/survey/questions/:id', (req: Request, res: Response) => {
++app.delete('/api/survey/questions/:id', requireRole('admin'), async (req: Request, res: Response) => {
+   try {
+     const id = Number(req.params.id);
+-    const success = db.deleteSurveyQuestion(id);
+-    if (!success) return res.status(404).json({ error: 'Question not found' });
+-    db.logActivity({ user_id: actorId(req), action: 'survey_question_deleted', description: `Removed survey question #${id}` });
++    if (!(await db.deleteSurveyQuestion(id))) return res.status(404).json({ error: 'Question not found' });
++    await db.logActivity({ user_id: req.user!.user_id, action: 'survey_question_deleted', description: `Removed survey question #${id}` });
+     return res.json({ message: 'Survey question deleted successfully' });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.post('/api/events/:id/evaluations', (req: Request, res: Response) => {
++app.post('/api/events/:id/evaluations', requireRole('student'), async (req: Request, res: Response) => {
+   try {
+     const eventId = Number(req.params.id);
+-    const user = getAuthenticatedUser(req);
+-    const participantId = user ? user.user_id : Number(req.body.participant_id);
+-
+-    if (!participantId) {
+-      return res.status(400).json({ error: 'Participant identification is required' });
+-    }
+-
+     const { comments, responses } = req.body;
+-    const result = db.submitEvaluation({
+-      event_id: eventId,
+-      participant_id: participantId,
+-      comments,
+-      responses,
+-    });
++    const result = await db.submitEvaluation({ event_id: eventId, participant_id: req.user!.user_id, comments, responses });
+     // Logged without the participant id to keep evaluations anonymous
+-    db.logActivity({ user_id: null, action: 'evaluation_submitted', description: `Evaluation submitted for "${eventName(eventId)}"`, event_id: eventId });
+-
++    await db.logActivity({ user_id: null, action: 'evaluation_submitted', description: `Evaluation submitted for "${await eventName(eventId)}"`, event_id: eventId });
+     return res.status(201).json(result);
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.get('/api/events/:id/evaluation-report', (req: Request, res: Response) => {
++app.get('/api/events/:id/evaluation-report', requireRole('organizer', 'admin'), async (req: Request, res: Response) => {
+   try {
+     const eventId = Number(req.params.id);
+-    const report = db.getEventEvaluationReport(eventId);
+-    return res.json({ report });
++    if (!(await loadManagedEvent(req, res, eventId))) return;
++    return res.json({ report: await db.getEventEvaluationReport(eventId) });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+ // ============================================================================
+-// 5. ADMIN & REPORTS API
++// 5. ACTIVITY LOG, ADMIN & REPORTS API
+ // ============================================================================
+-// ============================================================================
+-// ACTIVITY LOG & NOTIFICATIONS API
+-// ============================================================================
+-app.get('/api/activity', (req: Request, res: Response) => {
+-  const user = getAuthenticatedUser(req);
+-  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+-  const limit = Math.min(Number(req.query.limit) || 20, 500);
+-  return res.json({
+-    logs: db.getActivityLogs(user.user_id, limit),
+-    notifications_seen_at: user.notifications_seen_at ?? null,
+-  });
++app.get('/api/activity', requireAuth, async (req: Request, res: Response) => {
++  try {
++    const limit = Math.min(Number(req.query.limit) || 20, 500);
++    return res.json({
++      logs: await db.getActivityLogs(req.user!.user_id, limit),
++      notifications_seen_at: req.user!.notifications_seen_at ?? null,
++    });
++  } catch (error: any) {
++    return fail(res, error, 500);
++  }
+ });
+ 
+-app.patch('/api/activity/seen', (req: Request, res: Response) => {
++app.patch('/api/activity/seen', requireAuth, async (req: Request, res: Response) => {
+   try {
+-    const user = getAuthenticatedUser(req);
+-    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+-    return res.json({ notifications_seen_at: db.markNotificationsSeen(user.user_id) });
++    return res.json({ notifications_seen_at: await db.markNotificationsSeen(req.user!.user_id) });
+   } catch (error: any) {
+-    return res.status(400).json({ error: error.message });
++    return fail(res, error);
+   }
+ });
+ 
+-app.get('/api/admin/dashboard', (req: Request, res: Response) => {
++// Public campus-wide totals (no personal data) shown on the landing page and dashboards
++app.get('/api/admin/dashboard', async (_req: Request, res: Response) => {
+   try {
+-    const stats = db.getAdminDashboardStats();
+-    return res.json({ stats });
++    return res.json({ stats: await db.getAdminDashboardStats() });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.get('/api/reports/events', (req: Request, res: Response) => {
++app.get('/api/reports/events', requireRole('admin', 'organizer'), async (req: Request, res: Response) => {
+   try {
+-    const events = db.getEventsReport();
+-    return res.json({ events });
++    const organizerId = req.user!.role === 'organizer' ? req.user!.user_id : undefined;
++    return res.json({ events: await db.getEventsReport(organizerId) });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.get('/api/reports/registrations', (req: Request, res: Response) => {
++app.get('/api/reports/registrations', requireRole('admin'), async (_req: Request, res: Response) => {
+   try {
+-    const events = db.getEvents({ all: true });
+-    const departmentStats: Record<string, { total_registered: number; total_attended: number }> = {};
+-
+-    for (const e of events) {
+-      const dept = e.department || 'Other';
+-      if (!departmentStats[dept]) {
+-        departmentStats[dept] = { total_registered: 0, total_attended: 0 };
+-      }
+-      departmentStats[dept].total_registered += e.registered_count;
+-      departmentStats[dept].total_attended += e.attended_count;
+-    }
+-
+-    return res.json({ departmentStats });
++    return res.json({ departmentStats: await db.getDepartmentRegistrationStats() });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-app.get('/api/reports/evaluations', (req: Request, res: Response) => {
++app.get('/api/reports/evaluations', requireRole('admin'), async (_req: Request, res: Response) => {
+   try {
+-    const events = db.getEventsReport();
++    const events = await db.getEventsReport();
+     return res.json({
+-      evaluation_summary: events.map(e => ({
++      evaluation_summary: events.map((e) => ({
+         event_id: e.event_id,
+         event_name: e.event_name,
+         evaluation_count: e.evaluation_count,
+@@ -627,27 +558,48 @@ app.get('/api/reports/evaluations', (req: Request, res: Response) => {
+       })),
+     });
+   } catch (error: any) {
+-    return res.status(500).json({ error: error.message });
++    return fail(res, error, 500);
+   }
+ });
+ 
+-// System utilities
+-app.get('/api/system/export-sql', (req: Request, res: Response) => {
+-  const sql = db.generateFullSqlDump();
+-  res.setHeader('Content-Type', 'application/sql');
+-  res.setHeader('Content-Disposition', 'attachment; filename="event_evaluation_system.sql"');
+-  return res.send(sql);
++app.get('/api/reports/rankings', requireRole('admin'), async (_req: Request, res: Response) => {
++  try {
++    return res.json({ rankings: await db.getEventRankings() });
++  } catch (error: any) {
++    return fail(res, error, 500);
++  }
+ });
+ 
+-app.post('/api/system/reset-demo', (req: Request, res: Response) => {
+-  db.seedInitialData();
+-  return res.json({ message: 'Database reset to initial CMU seed dataset' });
++// System utilities (admin only)
++app.get('/api/system/export-sql', requireRole('admin'), async (_req: Request, res: Response) => {
++  try {
++    const sql = await db.generateFullSqlDump();
++    res.setHeader('Content-Type', 'application/sql');
++    res.setHeader('Content-Disposition', 'attachment; filename="event_evaluation_system.sql"');
++    return res.send(sql);
++  } catch (error: any) {
++    return fail(res, error, 500);
++  }
++});
++
++app.post('/api/system/reset-demo', requireRole('admin'), async (_req: Request, res: Response) => {
++  try {
++    await db.seedInitialData();
++    return res.json({ message: 'Database reset to initial CMU seed dataset' });
++  } catch (error: any) {
++    return fail(res, error, 500);
++  }
+ });
+ 
++// Unknown API routes return JSON instead of the React page
++app.use('/api', (_req: Request, res: Response) => res.status(404).json({ error: 'API endpoint not found' }));
++
+ // ============================================================================
+ // 6. VITE MIDDLEWARE INTEGRATION (FULL-STACK DEV SERVER)
+ // ============================================================================
+ async function startServer() {
++  await db.init();
++
+   if (!isProduction) {
+     const vite = await createViteServer({
+       server: { middlewareMode: true },
+@@ -657,7 +609,7 @@ async function startServer() {
+   } else {
+     const distPath = path.resolve(process.cwd(), 'dist');
+     app.use(express.static(distPath));
+-    app.get('*', (req, res) => {
++    app.get('*', (_req, res) => {
+       res.sendFile(path.resolve(distPath, 'index.html'));
+     });
+   }
+@@ -667,4 +619,8 @@ async function startServer() {
+   });
+ }
+ 
+-startServer();
++startServer().catch((err) => {
++  console.error('[CMU SIA System] Failed to start. Is MySQL running and are the MYSQL_* values in .env correct?');
++  console.error(err);
++  process.exit(1);
++});
+diff --git a/server/auth.ts b/server/auth.ts
+new file mode 100644
+index 0000000..2966be4
+--- /dev/null
++++ b/server/auth.ts
+@@ -0,0 +1,92 @@
++/**
++ * Authentication and role-based access control (RBAC) middleware.
++ *
++ * Flow:
++ *  1. POST /api/auth/login checks the bcrypt hash and returns a signed JWT
++ *     containing the user's id and role.
++ *  2. The React client sends it on every request as `Authorization: Bearer <token>`.
++ *  3. `authenticate` verifies the signature and expiry, reloads the user from
++ *     MySQL (so deactivated accounts and role changes take effect at once),
++ *     and attaches the user to `req.user`.
++ *  4. `requireAuth` / `requireRole(...)` guard each protected endpoint.
++ */
++import { Request, Response, NextFunction } from 'express';
++import jwt from 'jsonwebtoken';
++import { db, SafeUser } from './repository.ts';
++
++export type Role = 'admin' | 'organizer' | 'student';
++
++declare global {
++  // eslint-disable-next-line @typescript-eslint/no-namespace
++  namespace Express {
++    interface Request {
++      user?: SafeUser;
++    }
++  }
++}
++
++interface TokenPayload {
++  sub: string;
++  role: Role;
++  username: string;
++}
++
++const DEV_FALLBACK_SECRET = 'dev-only-secret-change-me';
++
++const getSecret = (): string => {
++  const secret = process.env.JWT_SECRET;
++  if (secret && secret.length >= 16) return secret;
++  if (process.env.NODE_ENV === 'production') {
++    throw new Error('JWT_SECRET must be set (at least 16 characters) in production');
++  }
++  return DEV_FALLBACK_SECRET;
++};
++
++/** Issues a signed token for a logged-in user (default lifetime: 8 hours). */
++export const signToken = (user: Pick<SafeUser, 'user_id' | 'role' | 'username'>): string =>
++  jwt.sign({ role: user.role, username: user.username }, getSecret(), {
++    subject: String(user.user_id),
++    expiresIn: (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'],
++  });
++
++/** Global middleware: reads the Bearer token if present. Requests without a token continue as guests. */
++export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
++  const header = req.headers.authorization;
++  if (!header) return next();
++
++  const [scheme, token] = header.split(' ');
++  if (scheme !== 'Bearer' || !token) {
++    return res.status(401).json({ error: 'Malformed Authorization header. Use: Bearer <token>' });
++  }
++
++  try {
++    const payload = jwt.verify(token, getSecret()) as unknown as TokenPayload;
++    const user = await db.findUserById(Number(payload.sub));
++    if (!user) return res.status(401).json({ error: 'Account no longer exists. Please log in again.' });
++    if (user.status === 'inactive') {
++      return res.status(403).json({ error: 'This account has been deactivated. Please contact the administrator.' });
++    }
++    const { password: _pw, ...safeUser } = user;
++    req.user = safeUser;
++    return next();
++  } catch {
++    return res.status(401).json({ error: 'Session expired or invalid token. Please log in again.' });
++  }
++};
++
++/** Rejects guests with 401 Unauthorized. */
++export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
++  if (!req.user) return res.status(401).json({ error: 'Authentication required. Please log in.' });
++  return next();
++};
++
++/** Rejects guests with 401 and users of other roles with 403 Forbidden. */
++export const requireRole =
++  (...roles: Role[]) =>
++  (req: Request, res: Response, next: NextFunction) => {
++    if (!req.user) return res.status(401).json({ error: 'Authentication required. Please log in.' });
++    if (!roles.includes(req.user.role)) {
++      return res.status(403).json({ error: `Access denied. This action requires the ${roles.join(' or ')} role.` });
++    }
++    return next();
++  };
+diff --git a/server/repository.ts b/server/repository.ts
+new file mode 100644
+index 0000000..d7145b2
+--- /dev/null
++++ b/server/repository.ts
+@@ -0,0 +1,858 @@
++/**
++ * MySQL data-access layer (repository) for the CMU Event Registration and
++ * Feedback Management System.
++ *
++ * Every REST controller in server.ts calls these async functions. All queries
++ * use mysql2 placeholders (?) so user input is never concatenated into SQL.
++ * Multi-step writes (registration, evaluation submission, seeding) run inside
++ * transactions so they either fully succeed or fully roll back.
++ */
++import fs from 'fs';
++import path from 'path';
++import bcrypt from 'bcryptjs';
++import mysql, { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
++import {
++  buildSeedState,
++  User,
++  EventItem,
++  Registration,
++  SurveySection,
++  SurveyQuestion,
++  ActivityLog,
++} from './seed-data.ts';
++
++export type SafeUser = Omit<User, 'password'>;
++type Row = RowDataPacket & Record<string, any>;
++
++// Read lazily so values from .env (loaded in server.ts) are used
++const dbName = () => process.env.MYSQL_DATABASE || 'event_evaluation_system';
++const SCHEMA_FILE = path.resolve(process.cwd(), 'database', 'event_evaluation_system.sql');
++
++const connectionOptions = () => ({
++  host: process.env.MYSQL_HOST || 'localhost',
++  port: Number(process.env.MYSQL_PORT) || 3306,
++  user: process.env.MYSQL_USER || 'root',
++  password: process.env.MYSQL_PASSWORD || '',
++});
++
++let pool: Pool;
++
++// ---------------------------------------------------------------------------
++// Value helpers
++// ---------------------------------------------------------------------------
++/** UTC timestamp columns are returned to the client as ISO strings ending in Z. */
++const UTC_FIELDS = ['created_at', 'updated_at', 'registered_at', 'attended_at', 'submit_date', 'last_login', 'notifications_seen_at'];
++
++/** Converts any date input to a UTC 'YYYY-MM-DD HH:MM:SS' string for TIMESTAMP columns. */
++const toUtcSql = (value: string | Date | null | undefined): string | null => {
++  if (!value) return null;
++  const d = value instanceof Date ? value : new Date(value);
++  if (Number.isNaN(d.getTime())) throw new Error(`Invalid date value: ${value}`);
++  return d.toISOString().slice(0, 19).replace('T', ' ');
++};
++
++/** Registration deadlines are wall-clock times (as typed by the organizer), stored without time-zone conversion. */
++const toLocalSql = (value: string | null | undefined): string | null => {
++  if (!value) return null;
++  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?/);
++  if (m) return `${m[1]} ${m[2]}${m[3] || ':00'}`;
++  return toUtcSql(value);
++};
++
++const nowUtcSql = () => toUtcSql(new Date())!;
++
++const mapRow = <T = any>(row: Row | undefined | null): T => {
++  if (!row) return row as T;
++  const out: Record<string, any> = { ...row };
++  for (const f of UTC_FIELDS) {
++    if (typeof out[f] === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(out[f])) {
++      out[f] = out[f].slice(0, 19).replace(' ', 'T') + 'Z';
++    }
++  }
++  if (typeof out.registration_deadline === 'string') {
++    out.registration_deadline = out.registration_deadline.slice(0, 19).replace(' ', 'T');
++  }
++  if ('is_required' in out) out.is_required = Boolean(out.is_required);
++  if ('has_evaluated' in out) out.has_evaluated = Boolean(out.has_evaluated);
++  return out as T;
++};
++
++const stripPassword = (u: User): SafeUser => {
++  const { password: _pw, ...safe } = u;
++  return safe;
++};
++
++async function query<T = Row>(sql: string, params: any[] = [], conn?: PoolConnection): Promise<T[]> {
++  const [rows] = await (conn || pool).query<Row[]>(sql, params);
++  return (rows as Row[]).map((r) => mapRow<T>(r));
++}
++
++async function queryOne<T = Row>(sql: string, params: any[] = [], conn?: PoolConnection): Promise<T | undefined> {
++  const rows = await query<T>(sql, params, conn);
++  return rows[0];
++}
++
++async function execute(sql: string, params: any[] = [], conn?: PoolConnection): Promise<ResultSetHeader> {
++  const [result] = await (conn || pool).query<ResultSetHeader>(sql, params);
++  return result;
++}
++
++async function inTransaction<T>(work: (conn: PoolConnection) => Promise<T>): Promise<T> {
++  const conn = await pool.getConnection();
++  try {
++    await conn.beginTransaction();
++    const result = await work(conn);
++    await conn.commit();
++    return result;
++  } catch (err) {
++    await conn.rollback();
++    throw err;
++  } finally {
++    conn.release();
++  }
++}
++
++const isDuplicateKey = (err: any) => err && err.code === 'ER_DUP_ENTRY';
++
++// Shared SELECT that adds live registration/attendance/evaluation counts to each event
++const EVENT_WITH_COUNTS = `
++  SELECT e.*,
++         u.full_name AS organizer_full_name,
++         (SELECT COUNT(*) FROM registrations r WHERE r.event_id = e.event_id) AS registered_count,
++         (SELECT COUNT(*) FROM registrations r WHERE r.event_id = e.event_id AND r.attendance_status = 'attended') AS attended_count,
++         (SELECT COUNT(*) FROM evaluations v WHERE v.event_id = e.event_id) AS evaluation_count
++  FROM events e
++  LEFT JOIN users u ON u.user_id = e.organizer_id`;
++
++const withOrganizerName = (row: any, fallback: string) => {
++  const { organizer_full_name, ...rest } = row;
++  return { ...rest, organizer_name: organizer_full_name || fallback };
++};
++
++const getInterpretation = (score: number) => {
++  if (score >= 4.5) return 'Excellent';
++  if (score >= 4.0) return 'Very Satisfactory';
++  if (score >= 3.0) return 'Satisfactory';
++  if (score >= 1.5) return 'Unsatisfactory';
++  return 'Very Unsatisfactory';
++};
++
++const mean = (values: number[]) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0);
++const round2 = (n: number) => Number(n.toFixed(2));
++
++const TABLES_IN_INSERT_ORDER = [
++  'users',
++  'admins',
++  'events',
++  'registrations',
++  'survey_sections',
++  'survey_questions',
++  'evaluations',
++  'evaluation_responses',
++  'activity_logs',
++];
++
++async function insertMany(conn: PoolConnection, table: string, columns: string[], rows: any[][]) {
++  for (let i = 0; i < rows.length; i += 500) {
++    const chunk = rows.slice(i, i + 500);
++    if (chunk.length === 0) continue;
++    await conn.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES ?`, [chunk]);
++  }
++}
++
++// ---------------------------------------------------------------------------
++// Repository
++// ---------------------------------------------------------------------------
++export const db = {
++  /** Connects to MySQL, creates the database and tables if missing, and seeds demo data on first run. */
++  async init(): Promise<void> {
++    const schema = fs.readFileSync(SCHEMA_FILE, 'utf-8').replace(/event_evaluation_system/g, dbName());
++    const bootstrap = await mysql.createConnection({ ...connectionOptions(), multipleStatements: true });
++    try {
++      await bootstrap.query(schema);
++    } finally {
++      await bootstrap.end();
++    }
++
++    pool = mysql.createPool({
++      ...connectionOptions(),
++      database: dbName(),
++      connectionLimit: 10,
++      dateStrings: true,
++      decimalNumbers: true,
++      timezone: 'Z',
++    });
++    pool.on('connection', (conn) => {
++      conn.query("SET time_zone = '+00:00'");
++    });
++
++    const countRow = await queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM users');
++    if (!countRow || countRow.n === 0) {
++      console.log('[MySQL] Empty database detected, inserting CMU demo data...');
++      await db.seedInitialData();
++    }
++    console.log(`[MySQL] Connected to ${connectionOptions().host}:${connectionOptions().port}/${dbName()}`);
++  },
++
++  async close(): Promise<void> {
++    if (pool) await pool.end();
++  },
++
++  /** Clears every table and inserts the deterministic CMU demo dataset. */
++  async seedInitialData(): Promise<void> {
++    const s = buildSeedState();
++    const conn = await pool.getConnection();
++    try {
++      await conn.query('SET FOREIGN_KEY_CHECKS = 0');
++      for (const t of [...TABLES_IN_INSERT_ORDER].reverse()) {
++        await conn.query(`TRUNCATE TABLE ${t}`);
++      }
++      await conn.beginTransaction();
++      await insertMany(conn, 'users',
++        ['user_id', 'username', 'password', 'full_name', 'email', 'role', 'student_id', 'college_department', 'status', 'last_login', 'notifications_seen_at', 'created_at'],
++        s.users.map((u) => [u.user_id, u.username, u.password, u.full_name, u.email, u.role, u.student_id ?? null, u.college_department ?? null,
++          u.status || 'active', toUtcSql(u.last_login), toUtcSql(u.notifications_seen_at), toUtcSql(u.created_at)]));
++      await insertMany(conn, 'admins',
++        ['admin_id', 'username', 'password', 'full_name', 'email', 'last_login', 'created_at'],
++        s.admins.map((a) => [a.admin_id, a.username, a.password, a.full_name, a.email, toUtcSql(a.last_login), toUtcSql(a.created_at)]));
++      await insertMany(conn, 'events',
++        ['event_id', 'event_name', 'event_date', 'department', 'description', 'venue', 'start_time', 'end_time', 'registration_deadline',
++          'capacity', 'organizer_id', 'approval_status', 'rejection_reason', 'is_active', 'admin_id', 'image_url', 'created_at', 'updated_at'],
++        s.events.map((e) => [e.event_id, e.event_name, e.event_date, e.department, e.description, e.venue, e.start_time, e.end_time,
++          toLocalSql(e.registration_deadline), e.capacity, e.organizer_id, e.approval_status, e.rejection_reason ?? null, e.is_active ? 1 : 0,
++          e.admin_id, e.image_url ?? null, toUtcSql(e.created_at), toUtcSql(e.updated_at)]));
++      await insertMany(conn, 'registrations',
++        ['registration_id', 'event_id', 'user_id', 'registered_at', 'attendance_status', 'attended_at'],
++        s.registrations.map((r) => [r.registration_id, r.event_id, r.user_id, toUtcSql(r.registered_at), r.attendance_status, toUtcSql(r.attended_at)]));
++      await insertMany(conn, 'survey_sections',
++        ['section_id', 'section_name', 'section_description', 'display_order', 'created_at', 'updated_at'],
++        s.survey_sections.map((x) => [x.section_id, x.section_name, x.section_description, x.display_order, toUtcSql(x.created_at), toUtcSql(x.updated_at)]));
++      await insertMany(conn, 'survey_questions',
++        ['question_id', 'section_id', 'question_text', 'is_required', 'created_at', 'updated_at'],
++        s.survey_questions.map((q) => [q.question_id, q.section_id, q.question_text, q.is_required ? 1 : 0, toUtcSql(q.created_at), toUtcSql(q.updated_at)]));
++      await insertMany(conn, 'evaluations',
++        ['evaluation_id', 'event_id', 'participant_id', 'registration_id', 'submit_date', 'comments'],
++        s.evaluations.map((v) => [v.evaluation_id, v.event_id, v.participant_id, v.registration_id, toUtcSql(v.submit_date), v.comments]));
++      await insertMany(conn, 'evaluation_responses',
++        ['response_id', 'evaluation_id', 'question_id', 'rating'],
++        s.evaluation_responses.map((r) => [r.response_id, r.evaluation_id, r.question_id, r.rating]));
++      await insertMany(conn, 'activity_logs',
++        ['log_id', 'user_id', 'actor_name', 'action', 'description', 'event_id', 'target_user_id', 'created_at'],
++        s.activity_logs.map((l) => [l.log_id, l.user_id, l.actor_name, l.action, l.description, l.event_id, l.target_user_id, toUtcSql(l.created_at)]));
++      await conn.commit();
++    } catch (err) {
++      await conn.rollback();
++      throw err;
++    } finally {
++      await conn.query('SET FOREIGN_KEY_CHECKS = 1');
++      conn.release();
++    }
++  },
++
++  // --- Activity Log & Notifications ---------------------------------------
++  async logActivity(entry: { user_id: number | null; action: string; description: string; event_id?: number | null; target_user_id?: number | null }): Promise<void> {
++    const actor = entry.user_id ? await db.findUserById(entry.user_id) : undefined;
++    await execute(
++      'INSERT INTO activity_logs (user_id, actor_name, action, description, event_id, target_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
++      [entry.user_id, entry.user_id ? actor?.full_name ?? 'Unknown user' : 'Anonymous participant', entry.action, entry.description,
++        entry.event_id ?? null, entry.target_user_id ?? null, nowUtcSql()],
++    );
++  },
++
++  // Admins see everything; organizers see activity on their events; students see their own records
++  async getActivityLogs(userId: number, limit = 20): Promise<ActivityLog[]> {
++    const user = await db.findUserById(userId);
++    if (!user) return [];
++    if (user.role === 'admin') {
++      return query<ActivityLog>('SELECT * FROM activity_logs ORDER BY created_at DESC, log_id DESC LIMIT ?', [limit]);
++    }
++    return query<ActivityLog>(
++      `SELECT * FROM activity_logs
++       WHERE user_id = ? OR target_user_id = ?
++          OR (? = 'organizer' AND event_id IN (SELECT event_id FROM events WHERE organizer_id = ?))
++       ORDER BY created_at DESC, log_id DESC LIMIT ?`,
++      [userId, userId, user.role, userId, limit],
++    );
++  },
++
++  async recordLogin(userId: number): Promise<void> {
++    await execute('UPDATE users SET last_login = ? WHERE user_id = ?', [nowUtcSql(), userId]);
++  },
++
++  async markNotificationsSeen(userId: number): Promise<string> {
++    const now = new Date();
++    const res = await execute('UPDATE users SET notifications_seen_at = ? WHERE user_id = ?', [toUtcSql(now), userId]);
++    if (res.affectedRows === 0) throw new Error('User not found');
++    return now.toISOString();
++  },
++
++  // --- Users & Auth ---------------------------------------------------------
++  async findUserByUsername(username: string): Promise<User | undefined> {
++    return queryOne<User>('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [username]);
++  },
++
++  async findUserById(id: number): Promise<User | undefined> {
++    return queryOne<User>('SELECT * FROM users WHERE user_id = ?', [id]);
++  },
++
++  async getAllUsers(): Promise<SafeUser[]> {
++    const users = await query<User>('SELECT * FROM users ORDER BY user_id');
++    return users.map(stripPassword);
++  },
++
++  async createUser(data: {
++    username: string;
++    passwordPlain: string;
++    full_name: string;
++    email: string;
++    role: 'admin' | 'organizer' | 'student';
++    student_id?: string | null;
++    college_department?: string | null;
++  }): Promise<SafeUser> {
++    if (await db.findUserByUsername(data.username)) throw new Error('Username already exists');
++    if (await queryOne('SELECT user_id FROM users WHERE LOWER(email) = LOWER(?)', [data.email])) {
++      throw new Error('Email address already registered');
++    }
++    const hash = bcrypt.hashSync(data.passwordPlain, 10);
++    const now = nowUtcSql();
++    try {
++      const res = await execute(
++        `INSERT INTO users (username, password, full_name, email, role, student_id, college_department, status, created_at)
++         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
++        [data.username.trim(), hash, data.full_name.trim(), data.email.trim(), data.role, data.student_id || null, data.college_department || null, now],
++      );
++      if (data.role === 'admin') {
++        await execute('INSERT INTO admins (username, password, full_name, email, created_at) VALUES (?, ?, ?, ?, ?)',
++          [data.username.trim(), hash, data.full_name.trim(), data.email.trim(), now]);
++      }
++      return stripPassword((await db.findUserById(res.insertId))!);
++    } catch (err: any) {
++      if (isDuplicateKey(err)) throw new Error('Username or email already exists');
++      throw err;
++    }
++  },
++
++  async updateUser(userId: number, data: {
++    full_name?: string;
++    email?: string;
++    role?: 'admin' | 'organizer' | 'student';
++    student_id?: string | null;
++    college_department?: string | null;
++    passwordPlain?: string;
++  }): Promise<SafeUser> {
++    const user = await db.findUserById(userId);
++    if (!user) throw new Error('User not found');
++    const sets: string[] = [];
++    const params: any[] = [];
++    if (data.full_name) { sets.push('full_name = ?'); params.push(data.full_name.trim()); }
++    if (data.email) { sets.push('email = ?'); params.push(data.email.trim()); }
++    if (data.role) { sets.push('role = ?'); params.push(data.role); }
++    if (data.student_id !== undefined) { sets.push('student_id = ?'); params.push(data.student_id); }
++    if (data.college_department !== undefined) { sets.push('college_department = ?'); params.push(data.college_department); }
++    if (data.passwordPlain) { sets.push('password = ?'); params.push(bcrypt.hashSync(data.passwordPlain, 10)); }
++    if (sets.length) {
++      try {
++        await execute(`UPDATE users SET ${sets.join(', ')} WHERE user_id = ?`, [...params, userId]);
++      } catch (err: any) {
++        if (isDuplicateKey(err)) throw new Error('Email address already registered');
++        throw err;
++      }
++    }
++    return stripPassword((await db.findUserById(userId))!);
++  },
++
++  async toggleUserStatus(userId: number): Promise<SafeUser> {
++    const user = await db.findUserById(userId);
++    if (!user) throw new Error('User not found');
++    await execute('UPDATE users SET status = ? WHERE user_id = ?', [user.status === 'inactive' ? 'active' : 'inactive', userId]);
++    return stripPassword((await db.findUserById(userId))!);
++  },
++
++  async getUserEvaluations(userId: number) {
++    const rows = await query(
++      `SELECT v.*, e.event_name, e.event_date, e.department, e.venue,
++              AVG(r.rating) AS average_given_rating, COUNT(r.response_id) AS responses_count
++       FROM evaluations v
++       LEFT JOIN events e ON e.event_id = v.event_id
++       LEFT JOIN evaluation_responses r ON r.evaluation_id = v.evaluation_id
++       WHERE v.participant_id = ?
++       GROUP BY v.evaluation_id
++       ORDER BY v.submit_date DESC`,
++      [userId],
++    );
++    return rows.map((r: any) => ({
++      ...r,
++      event_name: r.event_name || 'CMU Event',
++      event_date: r.event_date || '',
++      department: r.department || '',
++      venue: r.venue || '',
++      average_given_rating: round2(Number(r.average_given_rating) || 0),
++      responses_count: Number(r.responses_count) || 0,
++    }));
++  },
++
++  // --- Events -----------------------------------------------------------------
++  async getEvents(options: { all?: boolean; organizer_id?: number; department?: string; search?: string }) {
++    const where: string[] = [];
++    const params: any[] = [];
++    if (!options.all) where.push("e.approval_status = 'approved'");
++    if (options.organizer_id) { where.push('e.organizer_id = ?'); params.push(options.organizer_id); }
++    if (options.department && options.department !== 'All') {
++      where.push('LOWER(e.department) LIKE ?');
++      params.push(`%${options.department.toLowerCase()}%`);
++    }
++    if (options.search) {
++      const q = `%${options.search.toLowerCase()}%`;
++      where.push('(LOWER(e.event_name) LIKE ? OR LOWER(e.description) LIKE ? OR LOWER(e.venue) LIKE ? OR LOWER(e.department) LIKE ?)');
++      params.push(q, q, q, q);
++    }
++    const rows = await query(
++      `${EVENT_WITH_COUNTS} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.event_date DESC, e.event_id DESC`,
++      params,
++    );
++    return rows.map((r) => withOrganizerName(r, 'Central Mindanao University')) as (EventItem & {
++      registered_count: number;
++      attended_count: number;
++      evaluation_count: number;
++    })[];
++  },
++
++  async getEventById(id: number) {
++    const row = await queryOne(`${EVENT_WITH_COUNTS} WHERE e.event_id = ?`, [id]);
++    if (!row) return null;
++    return withOrganizerName(row, 'CMU Organizing Committee') as EventItem & {
++      registered_count: number;
++      attended_count: number;
++      evaluation_count: number;
++      organizer_name: string;
++    };
++  },
++
++  async createEvent(data: {
++    event_name: string;
++    event_date: string;
++    department: string;
++    description: string;
++    venue: string;
++    start_time: string;
++    end_time: string;
++    registration_deadline?: string | null;
++    capacity: number;
++    organizer_id: number;
++    is_admin?: boolean;
++    image_url?: string;
++  }) {
++    const now = nowUtcSql();
++    const res = await execute(
++      `INSERT INTO events (event_name, event_date, department, description, venue, start_time, end_time, registration_deadline,
++                           capacity, organizer_id, approval_status, is_active, admin_id, image_url, created_at, updated_at)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++      [data.event_name.trim(), data.event_date, data.department.trim(), data.description.trim(), data.venue.trim() || 'CMU Convention Center',
++        data.start_time || '08:00:00', data.end_time || '17:00:00', toLocalSql(data.registration_deadline), Number(data.capacity) || 100,
++        data.organizer_id,
++        // Admin-created events are published immediately; organizer proposals wait for approval
++        data.is_admin ? 'approved' : 'pending', data.is_admin ? 1 : 0, data.is_admin ? data.organizer_id : null,
++        data.image_url || '/src/assets/images/university_tech_summit_1792726541628.jpg', now, now],
++    );
++    return (await db.getEventById(res.insertId))!;
++  },
++
++  /** Only descriptive fields can be edited; approval and evaluation status have their own endpoints. */
++  async updateEvent(id: number, data: Partial<EventItem>) {
++    if (!(await db.getEventById(id))) throw new Error('Event not found');
++    const editable: (keyof EventItem)[] = ['event_name', 'event_date', 'department', 'description', 'venue', 'start_time', 'end_time', 'registration_deadline', 'capacity', 'image_url'];
++    const sets: string[] = [];
++    const params: any[] = [];
++    for (const key of editable) {
++      if (data[key] !== undefined) {
++        sets.push(`${key} = ?`);
++        params.push(key === 'registration_deadline' ? toLocalSql(data[key] as string) : data[key]);
++      }
++    }
++    sets.push('updated_at = ?');
++    params.push(nowUtcSql());
++    await execute(`UPDATE events SET ${sets.join(', ')} WHERE event_id = ?`, [...params, id]);
++    return (await db.getEventById(id))!;
++  },
++
++  async setEventApproval(id: number, status: 'approved' | 'rejected', adminId: number, rejection_reason?: string) {
++    if (!(await db.getEventById(id))) throw new Error('Event not found');
++    await execute(
++      'UPDATE events SET approval_status = ?, admin_id = ?, rejection_reason = ?, is_active = ?, updated_at = ? WHERE event_id = ?',
++      [status, adminId, status === 'rejected' ? rejection_reason || 'Does not meet university event guidelines' : null,
++        status === 'approved' ? 1 : 0, nowUtcSql(), id],
++    );
++    return (await db.getEventById(id))!;
++  },
++
++  async setEventStatus(id: number, is_active: number) {
++    if (!(await db.getEventById(id))) throw new Error('Event not found');
++    await execute('UPDATE events SET is_active = ?, updated_at = ? WHERE event_id = ?', [is_active ? 1 : 0, nowUtcSql(), id]);
++    return (await db.getEventById(id))!;
++  },
++
++  /** Registrations, evaluations and responses are removed by ON DELETE CASCADE foreign keys. */
++  async deleteEvent(id: number): Promise<boolean> {
++    const res = await execute('DELETE FROM events WHERE event_id = ?', [id]);
++    return res.affectedRows > 0;
++  },
++
++  // --- Registrations ----------------------------------------------------------
++  async registerParticipant(eventId: number, userId: number): Promise<Registration> {
++    return inTransaction(async (conn) => {
++      // Lock the event row so two students cannot take the last slot at the same time
++      const evt = await queryOne<EventItem>('SELECT * FROM events WHERE event_id = ? FOR UPDATE', [eventId], conn);
++      if (!evt) throw new Error('Event not found');
++      if (evt.approval_status !== 'approved') throw new Error('Registration is only available for approved events');
++      if (evt.registration_deadline && Date.now() > new Date(evt.registration_deadline).getTime()) {
++        throw new Error('Registration deadline has passed for this event');
++      }
++      const countRow = await queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM registrations WHERE event_id = ?', [eventId], conn);
++      if ((countRow?.n ?? 0) >= evt.capacity) {
++        throw new Error(`Event has reached maximum capacity of ${evt.capacity} participants`);
++      }
++      if (await queryOne('SELECT registration_id FROM registrations WHERE event_id = ? AND user_id = ?', [eventId, userId], conn)) {
++        throw new Error('You are already registered for this event');
++      }
++      try {
++        const res = await execute(
++          "INSERT INTO registrations (event_id, user_id, registered_at, attendance_status) VALUES (?, ?, ?, 'registered')",
++          [eventId, userId, nowUtcSql()], conn,
++        );
++        return (await queryOne<Registration>('SELECT * FROM registrations WHERE registration_id = ?', [res.insertId], conn))!;
++      } catch (err: any) {
++        // UNIQUE KEY uq_event_student (event_id, user_id) is the final guard against duplicates
++        if (isDuplicateKey(err)) throw new Error('You are already registered for this event');
++        throw err;
++      }
++    });
++  },
++
++  async findRegistrationById(registrationId: number): Promise<Registration | undefined> {
++    return queryOne<Registration>('SELECT * FROM registrations WHERE registration_id = ?', [registrationId]);
++  },
++
++  async getEventRegistrations(eventId: number): Promise<Registration[]> {
++    const rows = await query(
++      `SELECT r.*,
++              COALESCE(u.full_name, 'Participant') AS student_name,
++              COALESCE(u.student_id, 'N/A') AS student_id_number,
++              COALESCE(u.email, '') AS student_email,
++              COALESCE(u.college_department, '') AS college_department,
++              EXISTS(SELECT 1 FROM evaluations v WHERE v.event_id = r.event_id AND v.participant_id = r.user_id) AS has_evaluated
++       FROM registrations r
++       LEFT JOIN users u ON u.user_id = r.user_id
++       WHERE r.event_id = ?
++       ORDER BY r.registration_id`,
++      [eventId],
++    );
++    return rows as Registration[];
++  },
++
++  async getUserRegistrations(userId: number): Promise<(Registration & { event: EventItem })[]> {
++    const regs = await query<Registration>(
++      `SELECT r.*, EXISTS(SELECT 1 FROM evaluations v WHERE v.event_id = r.event_id AND v.participant_id = r.user_id) AS has_evaluated
++       FROM registrations r WHERE r.user_id = ? ORDER BY r.registered_at DESC`,
++      [userId],
++    );
++    if (regs.length === 0) return [];
++    const events = await query<EventItem>('SELECT * FROM events WHERE event_id IN (?)', [regs.map((r) => r.event_id)]);
++    return regs
++      .map((r) => ({ ...r, event: events.find((e) => e.event_id === r.event_id)! }))
++      .filter((r) => r.event);
++  },
++
++  async updateAttendance(registrationId: number, status: 'registered' | 'attended' | 'absent'): Promise<Registration> {
++    const res = await execute('UPDATE registrations SET attendance_status = ?, attended_at = ? WHERE registration_id = ?',
++      [status, status === 'attended' ? nowUtcSql() : null, registrationId]);
++    if (res.affectedRows === 0) throw new Error('Registration record not found');
++    return (await db.findRegistrationById(registrationId))!;
++  },
++
++  async cancelRegistration(registrationId: number, userId: number, isAdminOrOrg = false): Promise<boolean> {
++    return inTransaction(async (conn) => {
++      const reg = await queryOne<Registration>('SELECT * FROM registrations WHERE registration_id = ?', [registrationId], conn);
++      if (!reg) return false;
++      if (!isAdminOrOrg && reg.user_id !== userId) throw new Error('Unauthorized to cancel this registration');
++      await execute('DELETE FROM evaluations WHERE event_id = ? AND participant_id = ?', [reg.event_id, reg.user_id], conn);
++      await execute('DELETE FROM registrations WHERE registration_id = ?', [registrationId], conn);
++      return true;
++    });
++  },
++
++  // --- Survey Sections & Questions -------------------------------------------
++  async getSurveySectionsWithQuestions(): Promise<(SurveySection & { questions: SurveyQuestion[] })[]> {
++    const sections = await query<SurveySection>('SELECT * FROM survey_sections ORDER BY display_order, section_id');
++    const questions = await query<SurveyQuestion>('SELECT * FROM survey_questions ORDER BY question_id');
++    return sections.map((sec) => ({ ...sec, questions: questions.filter((q) => q.section_id === sec.section_id) }));
++  },
++
++  async createSurveySection(data: { section_name: string; section_description: string; display_order?: number }): Promise<SurveySection> {
++    let order = data.display_order;
++    if (order === undefined) {
++      const row = await queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM survey_sections');
++      order = (row?.n ?? 0) + 1;
++    }
++    const now = nowUtcSql();
++    const res = await execute(
++      'INSERT INTO survey_sections (section_name, section_description, display_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
++      [data.section_name.trim(), (data.section_description || '').trim(), order, now, now],
++    );
++    return (await queryOne<SurveySection>('SELECT * FROM survey_sections WHERE section_id = ?', [res.insertId]))!;
++  },
++
++  async updateSurveySection(id: number, data: Partial<SurveySection>): Promise<SurveySection> {
++    const sec = await queryOne<SurveySection>('SELECT * FROM survey_sections WHERE section_id = ?', [id]);
++    if (!sec) throw new Error('Section not found');
++    await execute('UPDATE survey_sections SET section_name = ?, section_description = ?, display_order = ?, updated_at = ? WHERE section_id = ?', [
++      data.section_name ? data.section_name.trim() : sec.section_name,
++      data.section_description !== undefined ? data.section_description.trim() : sec.section_description,
++      data.display_order !== undefined ? data.display_order : sec.display_order,
++      nowUtcSql(),
++      id,
++    ]);
++    return (await queryOne<SurveySection>('SELECT * FROM survey_sections WHERE section_id = ?', [id]))!;
++  },
++
++  async createSurveyQuestion(data: { section_id: number; question_text: string; is_required?: boolean }): Promise<SurveyQuestion> {
++    if (!(await queryOne('SELECT section_id FROM survey_sections WHERE section_id = ?', [data.section_id]))) {
++      throw new Error('Parent survey section not found');
++    }
++    const now = nowUtcSql();
++    const res = await execute(
++      'INSERT INTO survey_questions (section_id, question_text, is_required, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
++      [data.section_id, data.question_text.trim(), data.is_required !== false ? 1 : 0, now, now],
++    );
++    return (await queryOne<SurveyQuestion>('SELECT * FROM survey_questions WHERE question_id = ?', [res.insertId]))!;
++  },
++
++  async updateSurveyQuestion(id: number, data: Partial<SurveyQuestion>): Promise<SurveyQuestion> {
++    const q = await queryOne<SurveyQuestion>('SELECT * FROM survey_questions WHERE question_id = ?', [id]);
++    if (!q) throw new Error('Question not found');
++    await execute('UPDATE survey_questions SET question_text = ?, is_required = ?, updated_at = ? WHERE question_id = ?', [
++      data.question_text ? data.question_text.trim() : q.question_text,
++      data.is_required !== undefined ? (data.is_required ? 1 : 0) : q.is_required ? 1 : 0,
++      nowUtcSql(),
++      id,
++    ]);
++    return (await queryOne<SurveyQuestion>('SELECT * FROM survey_questions WHERE question_id = ?', [id]))!;
++  },
++
++  async deleteSurveyQuestion(id: number): Promise<boolean> {
++    const res = await execute('DELETE FROM survey_questions WHERE question_id = ?', [id]);
++    return res.affectedRows > 0;
++  },
++
++  // --- Evaluations (transactional save) ----------------------------------------
++  async submitEvaluation(data: {
++    event_id: number;
++    participant_id: number;
++    comments?: string | null;
++    responses: { question_id: number; rating: number }[];
++  }): Promise<{ evaluation_id: number; message: string }> {
++    return inTransaction(async (conn) => {
++      const evt = await queryOne<EventItem>('SELECT * FROM events WHERE event_id = ?', [data.event_id], conn);
++      if (!evt) throw new Error('Event not found');
++      if (!evt.is_active) throw new Error('Event is not currently activated for evaluation');
++
++      // 1. Only confirmed attendees may evaluate
++      const reg = await queryOne<Registration>('SELECT * FROM registrations WHERE event_id = ? AND user_id = ?', [data.event_id, data.participant_id], conn);
++      if (!reg) throw new Error('You are not registered for this event');
++      if (reg.attendance_status !== 'attended') {
++        throw new Error('Only participants whose attendance has been confirmed can submit feedback');
++      }
++
++      // 2. One evaluation per attendee
++      if (await queryOne('SELECT evaluation_id FROM evaluations WHERE event_id = ? AND participant_id = ?', [data.event_id, data.participant_id], conn)) {
++        throw new Error('You have already submitted an evaluation for this event. Duplicate submissions are prevented.');
++      }
++
++      // 3. Validate the 1-5 ratings and question ids
++      if (!Array.isArray(data.responses) || data.responses.length === 0) throw new Error('At least one rating response is required');
++      for (const r of data.responses) {
++        if (typeof r.rating !== 'number' || r.rating < 1 || r.rating > 5) {
++          throw new Error(`Rating value must be an integer between 1 and 5 (received ${r.rating})`);
++        }
++      }
++      const ids = [...new Set(data.responses.map((r) => Number(r.question_id)))];
++      const found = await query<{ question_id: number }>('SELECT question_id FROM survey_questions WHERE question_id IN (?)', [ids], conn);
++      const missing = ids.find((id) => !found.some((f) => f.question_id === id));
++      if (missing !== undefined) throw new Error(`Survey question ID ${missing} does not exist`);
++
++      try {
++        const res = await execute(
++          'INSERT INTO evaluations (event_id, participant_id, registration_id, submit_date, comments) VALUES (?, ?, ?, ?, ?)',
++          [data.event_id, data.participant_id, reg.registration_id, nowUtcSql(), data.comments?.trim() || null], conn,
++        );
++        await conn.query('INSERT INTO evaluation_responses (evaluation_id, question_id, rating) VALUES ?', [
++          data.responses.map((r) => [res.insertId, Number(r.question_id), Math.round(r.rating)]),
++        ]);
++        return { evaluation_id: res.insertId, message: 'Evaluation submitted successfully! Thank you for your feedback.' };
++      } catch (err: any) {
++        if (isDuplicateKey(err)) throw new Error('You have already submitted an evaluation for this event. Duplicate submissions are prevented.');
++        throw err;
++      }
++    });
++  },
++
++  // --- Evaluation report (section means + interpretation) -----------------------
++  async getEventEvaluationReport(eventId: number) {
++    const evt = await db.getEventById(eventId);
++    if (!evt) throw new Error('Event not found');
++
++    const evals = await query<{ evaluation_id: number; submit_date: string; comments: string | null }>(
++      'SELECT evaluation_id, submit_date, comments FROM evaluations WHERE event_id = ? ORDER BY submit_date', [eventId]);
++    const responses = await query<{ question_id: number; rating: number }>(
++      `SELECT r.question_id, r.rating FROM evaluation_responses r
++       JOIN evaluations v ON v.evaluation_id = r.evaluation_id WHERE v.event_id = ?`, [eventId]);
++
++    const overallMean = round2(mean(responses.map((r) => r.rating)));
++    const sections = await db.getSurveySectionsWithQuestions();
++    const sectionReports = sections.map((sec) => {
++      const secResponses = responses.filter((r) => sec.questions.some((q) => q.question_id === r.question_id));
++      const secRatings = secResponses.map((r) => r.rating);
++      return {
++        section_id: sec.section_id,
++        section_name: sec.section_name,
++        section_description: sec.section_description,
++        total_responses: secResponses.length,
++        mean_score: round2(mean(secRatings)),
++        interpretation: secRatings.length > 0 ? getInterpretation(mean(secRatings)) : 'No Responses',
++        questions: sec.questions.map((q) => {
++          const qRatings = responses.filter((r) => r.question_id === q.question_id).map((r) => r.rating);
++          const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
++          for (const rating of qRatings) if (counts[rating] !== undefined) counts[rating]++;
++          return {
++            question_id: q.question_id,
++            question_text: q.question_text,
++            responses_count: qRatings.length,
++            mean_score: round2(mean(qRatings)),
++            interpretation: qRatings.length > 0 ? getInterpretation(mean(qRatings)) : 'No Responses',
++            rating_counts: counts,
++          };
++        }),
++      };
++    });
++
++    return {
++      event_id: evt.event_id,
++      event_name: evt.event_name,
++      event_date: evt.event_date,
++      department: evt.department,
++      venue: evt.venue,
++      total_registered: evt.registered_count,
++      total_attended: evt.attended_count,
++      total_evaluations: evals.length,
++      response_rate_percent: evt.attended_count > 0 ? Number(((evals.length / evt.attended_count) * 100).toFixed(1)) : 0,
++      overall_mean_score: overallMean,
++      overall_interpretation: evals.length > 0 ? getInterpretation(overallMean) : 'Pending Evaluation',
++      sections: sectionReports,
++      // Comments are returned without any participant identity
++      anonymous_comments: evals.filter((e) => e.comments && e.comments.trim()).map((e) => ({ submit_date: e.submit_date, comment: e.comments! })),
++      generated_at: new Date().toISOString(),
++    };
++  },
++
++  // --- Admin dashboard & reports (SQL aggregates) ------------------------------------
++  async getAdminDashboardStats() {
++    const row = (await queryOne<any>(`
++      SELECT
++        (SELECT COUNT(*) FROM events) AS total_events,
++        (SELECT COUNT(*) FROM events WHERE approval_status = 'pending') AS pending_approvals,
++        (SELECT COUNT(*) FROM events WHERE approval_status = 'approved') AS approved_events,
++        (SELECT COUNT(*) FROM events WHERE is_active = 1) AS active_evaluation_events,
++        (SELECT COUNT(*) FROM registrations) AS total_registrations,
++        (SELECT COUNT(*) FROM registrations WHERE attendance_status = 'attended') AS total_attended,
++        (SELECT COUNT(*) FROM evaluations) AS total_evaluations,
++        (SELECT AVG(rating) FROM evaluation_responses) AS overall_satisfaction_score,
++        (SELECT COUNT(*) FROM users WHERE role = 'student') AS total_students,
++        (SELECT COUNT(*) FROM users WHERE role = 'organizer') AS total_organizers`))!;
++    return {
++      total_events: row.total_events,
++      pending_approvals: row.pending_approvals,
++      approved_events: row.approved_events,
++      active_evaluation_events: row.active_evaluation_events,
++      total_registrations: row.total_registrations,
++      total_attended: row.total_attended,
++      attendance_rate_percent: row.total_registrations > 0 ? Number(((row.total_attended / row.total_registrations) * 100).toFixed(1)) : 0,
++      total_evaluations: row.total_evaluations,
++      overall_satisfaction_score: row.overall_satisfaction_score === null ? 0 : round2(Number(row.overall_satisfaction_score)),
++      total_students: row.total_students,
++      total_organizers: row.total_organizers,
++    };
++  },
++
++  async getEventsReport(organizerId?: number) {
++    const rows = await query<any>(
++      `SELECT e.event_id, e.event_name, e.event_date, e.department, e.venue, e.capacity, e.approval_status, e.is_active,
++              (SELECT COUNT(*) FROM registrations r WHERE r.event_id = e.event_id) AS registered_count,
++              (SELECT COUNT(*) FROM registrations r WHERE r.event_id = e.event_id AND r.attendance_status = 'attended') AS attended_count,
++              (SELECT COUNT(*) FROM evaluations v WHERE v.event_id = e.event_id) AS evaluation_count,
++              (SELECT AVG(er.rating) FROM evaluation_responses er
++                 JOIN evaluations v ON v.evaluation_id = er.evaluation_id WHERE v.event_id = e.event_id) AS average_rating
++       FROM events e
++       ${organizerId ? 'WHERE e.organizer_id = ?' : ''}
++       ORDER BY e.event_id`,
++      organizerId ? [organizerId] : [],
++    );
++    return rows.map((r) => ({ ...r, average_rating: r.average_rating === null ? null : round2(Number(r.average_rating)) }));
++  },
++
++  /** Events with at least one evaluation, ranked from highest to lowest overall mean. */
++  async getEventRankings() {
++    const rows = await db.getEventsReport();
++    return rows
++      .filter((r) => r.evaluation_count > 0 && r.average_rating !== null)
++      .sort((a, b) => b.average_rating - a.average_rating || b.evaluation_count - a.evaluation_count)
++      .map((r, idx) => ({
++        rank: idx + 1,
++        event_id: r.event_id,
++        event_name: r.event_name,
++        department: r.department,
++        average_rating: r.average_rating,
++        interpretation: getInterpretation(r.average_rating),
++        evaluation_count: r.evaluation_count,
++        attendance_rate_percent: r.registered_count > 0 ? Number(((r.attended_count / r.registered_count) * 100).toFixed(1)) : 0,
++        response_rate_percent: r.attended_count > 0 ? Number(((r.evaluation_count / r.attended_count) * 100).toFixed(1)) : 0,
++      }));
++  },
++
++  async getDepartmentRegistrationStats() {
++    const rows = await query<any>(
++      `SELECT COALESCE(NULLIF(e.department, ''), 'Other') AS department,
++              COUNT(r.registration_id) AS total_registered,
++              COALESCE(SUM(r.attendance_status = 'attended'), 0) AS total_attended
++       FROM events e
++       LEFT JOIN registrations r ON r.event_id = e.event_id
++       GROUP BY department`,
++    );
++    const stats: Record<string, { total_registered: number; total_attended: number }> = {};
++    for (const r of rows) stats[r.department] = { total_registered: Number(r.total_registered), total_attended: Number(r.total_attended) };
++    return stats;
++  },
++
++  // --- SQL export (schema + live data) -------------------------------------------------
++  async generateFullSqlDump(): Promise<string> {
++    const parts: string[] = [
++      '-- Central Mindanao University (CMU) - Event Evaluation System',
++      '-- Generated MySQL Export',
++      `-- Export Timestamp: ${new Date().toISOString()}`,
++      '',
++      fs.readFileSync(SCHEMA_FILE, 'utf-8'),
++      '',
++      'SET FOREIGN_KEY_CHECKS = 0;',
++    ];
++    for (const table of TABLES_IN_INSERT_ORDER) {
++      const [rows] = await pool.query<Row[]>(`SELECT * FROM ${table}`);
++      if (rows.length === 0) continue;
++      const cols = Object.keys(rows[0]);
++      parts.push(`\n-- ${table}: ${rows.length} rows`);
++      for (let i = 0; i < rows.length; i += 200) {
++        const values = rows.slice(i, i + 200).map((r) => mysql.format(`(${cols.map(() => '?').join(', ')})`, cols.map((c) => r[c]))).join(',\n');
++        parts.push(`INSERT INTO ${table} (${cols.join(', ')}) VALUES\n${values};`);
++      }
++    }
++    parts.push('SET FOREIGN_KEY_CHECKS = 1;');
++    return parts.join('\n');
++  },
++};
+diff --git a/server/reset-db.ts b/server/reset-db.ts
+index 1121c02..34e9bef 100644
+--- a/server/reset-db.ts
++++ b/server/reset-db.ts
+@@ -1,19 +1,16 @@
+-import fs from 'fs';
+-import path from 'path';
++import dotenv from 'dotenv';
+ 
+-// Rebuilds data/database.json from the seed in db.ts, keeping a backup of the previous file.
+-const dbFile = path.resolve(process.cwd(), 'data', 'database.json');
+-if (fs.existsSync(dbFile)) {
+-  const backup = dbFile.replace(/\.json$/, '.backup.json');
+-  fs.copyFileSync(dbFile, backup);
+-  console.log(`Previous database backed up to ${path.relative(process.cwd(), backup)}`);
+-}
++dotenv.config();
+ 
+-const { db } = await import('./db');
+-db.seedInitialData();
++// Clears every MySQL table and re-inserts the CMU demo dataset (accounts, events, survey, evaluations).
++const { db } = await import('./repository.ts');
+ 
+-const stats = db.getAdminDashboardStats();
++await db.init();
++await db.seedInitialData();
++
++const stats = await db.getAdminDashboardStats();
+ console.log(
+-  `Database reseeded: ${stats.total_events} events, ${stats.total_students} students, ` +
+-    `${stats.total_registrations} registrations, ${stats.total_attended} attended, ${stats.total_evaluations} evaluations.`
++  `MySQL database reseeded: ${stats.total_events} events, ${stats.total_students} students, ` +
++    `${stats.total_registrations} registrations, ${stats.total_attended} attended, ${stats.total_evaluations} evaluations.`,
+ );
++await db.close();
+diff --git a/server/db.ts b/server/seed-data.ts
+similarity index 98%
+rename from server/db.ts
+rename to server/seed-data.ts
+index c8a0ec1..baa32b8 100644
+--- a/server/db.ts
++++ b/server/seed-data.ts
+@@ -122,7 +122,10 @@ export interface DatabaseState {
+ 
+ const DB_FILE = path.resolve(process.cwd(), 'data', 'database.json');
+ 
+-class DatabaseEngine {
++// NOTE: Runtime data now lives in MySQL (see server/repository.ts).
++// This in-memory engine is kept only to generate the deterministic demo seed data
++// that server/repository.ts inserts into MySQL on first run or `npm run db:reset`.
++export class DatabaseEngine {
+   private state: DatabaseState = {
+     users: [],
+     admins: [],
+@@ -135,8 +138,12 @@ class DatabaseEngine {
+     activity_logs: [],
+   };
+ 
+-  constructor() {
+-    this.init();
++  constructor(autoInit = true) {
++    if (autoInit) this.init();
++  }
++
++  public getState(): DatabaseState {
++    return this.state;
+   }
+ 
+   private init() {
+@@ -171,7 +178,7 @@ class DatabaseEngine {
+     fs.writeFileSync(DB_FILE, JSON.stringify(this.state, null, 2), 'utf-8');
+   }
+ 
+-  public seedInitialData() {
++  public seedInitialData(persist = true) {
+     const hash = (pwd: string) => bcrypt.hashSync(pwd, 10);
+     const now = new Date().toISOString();
+ 
+@@ -883,7 +890,7 @@ class DatabaseEngine {
+       activity_logs,
+     };
+ 
+-    this.save();
++    if (persist) this.save();
+   }
+ 
+   // --- Activity Log & Notifications ---
+@@ -1660,4 +1667,9 @@ class DatabaseEngine {
+   }
+ }
+ 
+-export const db = new DatabaseEngine();
++/** Builds the deterministic CMU demo dataset without touching the disk. */
++export function buildSeedState(): DatabaseState {
++  const engine = new DatabaseEngine(false);
++  engine.seedInitialData(false);
++  return engine.getState();
++}
+diff --git a/src/App.tsx b/src/App.tsx
+index d050003..889459f 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -20,10 +20,10 @@ import { StudentRegistrationsView } from './components/StudentRegistrationsView'
+ import { StudentPortal } from './components/StudentPortal';
+ import { LoginModal } from './components/LoginModal';
+ import { LandingPage } from './components/LandingPage';
+-import { api, setAuthUserId } from './services/api';
++import { api, setAuthUserId, setAuthToken, getAuthToken } from './services/api';
+ import { EventItem, User, Registration, AdminDashboardStats } from './types';
+ 
+-const SESSION_KEY = 'cmu-event-session';
++const SESSION_KEY = 'cmu-event-token'; // stores the JWT so a refresh keeps you signed in
+ 
+ const homeModuleFor = (role: User['role']) =>
+   role === 'admin' ? 'admin-dashboard' : role === 'organizer' ? 'org-dashboard' : 'stu-listing';
+@@ -60,20 +60,25 @@ export default function App() {
+     setLoading(true);
+     try {
+       // Restore the previous session so a page refresh keeps you signed in; otherwise show the landing page
+-      let savedId: number | null = null;
++      let savedToken: string | null = null;
+       try {
+-        savedId = Number(localStorage.getItem(SESSION_KEY)) || null;
++        savedToken = localStorage.getItem(SESSION_KEY);
+       } catch {
+-        savedId = null;
++        savedToken = null;
+       }
+-      if (savedId) {
+-        setAuthUserId(savedId);
+-        const user = await api.getCurrentUser();
++      if (savedToken) {
++        setAuthToken(savedToken);
++        const user = await api.getCurrentUser(); // server verifies the token; expired tokens return null
+         if (user && user.status !== 'inactive') {
+           startSession(user);
+           return;
+         }
+-        setAuthUserId(null);
++        setAuthToken(null);
++        try {
++          localStorage.removeItem(SESSION_KEY);
++        } catch {
++          /* nothing stored */
++        }
+       }
+       loadEvents();
+     } finally {
+@@ -85,7 +90,8 @@ export default function App() {
+     setCurrentUser(user);
+     setAuthUserId(user.user_id);
+     try {
+-      localStorage.setItem(SESSION_KEY, String(user.user_id));
++      const token = getAuthToken();
++      if (token) localStorage.setItem(SESSION_KEY, token);
+     } catch {
+       /* session just won't survive a refresh */
+     }
+@@ -139,6 +145,7 @@ export default function App() {
+   const handleLogout = () => {
+     setCurrentUser(null);
+     setAuthUserId(null);
++    setAuthToken(null);
+     setMyRegistrations([]);
+     try {
+       localStorage.removeItem(SESSION_KEY);
+diff --git a/src/components/AdminPanel.tsx b/src/components/AdminPanel.tsx
+index e25917c..5f969d6 100644
+--- a/src/components/AdminPanel.tsx
++++ b/src/components/AdminPanel.tsx
+@@ -16,6 +16,7 @@ import {
+   LayoutDashboard,
+ } from 'lucide-react';
+ import { EvaluationReportView } from './EvaluationReportView';
++import { EventRankingsTable } from './EventRankingsTable';
+ import { SummaryCards, SummaryCard, SubTabBar, SubTab } from './SummaryCards';
+ 
+ interface AdminPanelProps {
+@@ -884,6 +885,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
+       {/* 5. MODULE: EVALUATION REPORTS */}
+       {activeSubTab === 'eval-reports' && (
+         <div className="space-y-4">
++          <EventRankingsTable />
+           <EvaluationReportView events={events} />
+         </div>
+       )}
+diff --git a/src/components/EventRankingsTable.tsx b/src/components/EventRankingsTable.tsx
+new file mode 100644
+index 0000000..70eab21
+--- /dev/null
++++ b/src/components/EventRankingsTable.tsx
+@@ -0,0 +1,61 @@
++import React, { useEffect, useState } from 'react';
++import { Trophy } from 'lucide-react';
++import { api } from '../services/api';
++import { EventRanking } from '../types';
++
++/** Admin table ranking evaluated events by overall mean rating (GET /api/reports/rankings). */
++export const EventRankingsTable: React.FC = () => {
++  const [rankings, setRankings] = useState<EventRanking[]>([]);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => {
++    api
++      .getEventRankings()
++      .then(setRankings)
++      .catch((err) => setError(err.message));
++  }, []);
++
++  return (
++    <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3">
++      <div className="flex items-center gap-2">
++        <Trophy className="w-4 h-4 text-[#00491E]" />
++        <h4 className="font-bold text-sm font-serif-cmu text-stone-900">Event Rankings</h4>
++        <span className="text-[11px] text-stone-500">Evaluated events ranked by overall mean rating</span>
++      </div>
++      {error && <div className="text-xs text-rose-700">{error}</div>}
++      {!error && rankings.length === 0 && <div className="text-xs text-stone-500">No evaluated events yet.</div>}
++      {rankings.length > 0 && (
++        <div className="overflow-x-auto">
++          <table className="w-full text-xs">
++            <thead>
++              <tr className="text-left text-[10px] uppercase tracking-wide text-stone-500 border-b border-stone-200">
++                <th className="py-2 px-3">Rank</th>
++                <th className="py-2 px-3">Event</th>
++                <th className="py-2 px-3">Department</th>
++                <th className="py-2 px-3 text-right">Mean (1–5)</th>
++                <th className="py-2 px-3">Interpretation</th>
++                <th className="py-2 px-3 text-right">Evaluations</th>
++                <th className="py-2 px-3 text-right">Attendance rate</th>
++                <th className="py-2 px-3 text-right">Response rate</th>
++              </tr>
++            </thead>
++            <tbody className="divide-y divide-stone-100">
++              {rankings.map((r) => (
++                <tr key={r.event_id} className="hover:bg-stone-50/60">
++                  <td className="py-2 px-3 font-black text-[#00491E]">#{r.rank}</td>
++                  <td className="py-2 px-3 font-bold text-stone-900">{r.event_name}</td>
++                  <td className="py-2 px-3 text-stone-600">{r.department}</td>
++                  <td className="py-2 px-3 text-right font-mono font-bold">{r.average_rating.toFixed(2)}</td>
++                  <td className="py-2 px-3 text-stone-700">{r.interpretation}</td>
++                  <td className="py-2 px-3 text-right font-mono">{r.evaluation_count}</td>
++                  <td className="py-2 px-3 text-right font-mono">{r.attendance_rate_percent}%</td>
++                  <td className="py-2 px-3 text-right font-mono">{r.response_rate_percent}%</td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++        </div>
++      )}
++    </div>
++  );
++};
+diff --git a/src/components/OrganizerPanel.tsx b/src/components/OrganizerPanel.tsx
+index 45756b7..966383a 100644
+--- a/src/components/OrganizerPanel.tsx
++++ b/src/components/OrganizerPanel.tsx
+@@ -178,10 +178,10 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
+     const headers = ['Registration ID', 'Student Name', 'Email', 'Student ID', 'Department', 'Registered At', 'Attendance Status', 'Evaluated'];
+     const rows = registrations.map((r) => [
+       r.registration_id,
+-      `"${r.student?.full_name || ''}"`,
+-      r.student?.email || '',
+-      r.student?.student_id || '',
+-      `"${r.student?.college_department || ''}"`,
++      `"${r.student_name || ''}"`,
++      r.student_email || '',
++      r.student_id_number || '',
++      `"${r.college_department || ''}"`,
+       r.registered_at,
+       r.attendance_status,
+       r.has_evaluated ? 'Yes' : 'No',
+@@ -277,10 +277,10 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
+   const filteredRegistrations = registrations.filter((r) => {
+     if (!regSearchQuery.trim()) return true;
+     const q = regSearchQuery.toLowerCase();
+-    const name = r.student?.full_name?.toLowerCase() || '';
+-    const email = r.student?.email?.toLowerCase() || '';
+-    const sid = r.student?.student_id?.toLowerCase() || '';
+-    const dept = r.student?.college_department?.toLowerCase() || '';
++    const name = r.student_name?.toLowerCase() || '';
++    const email = r.student_email?.toLowerCase() || '';
++    const sid = r.student_id_number?.toLowerCase() || '';
++    const dept = r.college_department?.toLowerCase() || '';
+     return name.includes(q) || email.includes(q) || sid.includes(q) || dept.includes(q);
+   });
+ 
+@@ -625,14 +625,14 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
+                     {filteredRegistrations.map((reg) => (
+                       <tr key={reg.registration_id} className="hover:bg-stone-50/60">
+                         <td className="py-3 px-4">
+-                          <div className="font-bold text-stone-900">{reg.student?.full_name}</div>
+-                          <div className="text-[11px] text-stone-500">{reg.student?.email}</div>
++                          <div className="font-bold text-stone-900">{reg.student_name}</div>
++                          <div className="text-[11px] text-stone-500">{reg.student_email}</div>
+                         </td>
+                         <td className="py-3 px-4 font-mono font-medium text-stone-700">
+-                          {reg.student?.student_id || '—'}
++                          {reg.student_id_number || '—'}
+                         </td>
+                         <td className="py-3 px-4 text-stone-700">
+-                          {reg.student?.college_department || '—'}
++                          {reg.college_department || '—'}
+                         </td>
+                         <td className="py-3 px-4 text-stone-500 font-mono text-[11px]">
+                           {new Date(reg.registered_at).toLocaleDateString()}
+@@ -751,10 +751,10 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
+                   {registrations.map((reg) => (
+                     <tr key={reg.registration_id} className="hover:bg-stone-50/60">
+                       <td className="py-3 px-4 font-bold text-stone-900">
+-                        {reg.student?.full_name}
++                        {reg.student_name}
+                       </td>
+                       <td className="py-3 px-4 font-mono text-stone-700">
+-                        {reg.student?.student_id || '—'}
++                        {reg.student_id_number || '—'}
+                       </td>
+                       <td className="py-3 px-4">
+                         <span className={`whitespace-nowrap px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
+@@ -940,37 +940,37 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
+                 <div className="bg-[#00491E] text-white p-4 rounded-xl border border-emerald-700">
+                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Overall Mean Rating</span>
+                   <span className="text-2xl font-black text-[#FFC600]">
+-                    {evaluationReport.overall_rating.toFixed(2)} / 5.0
++                    {evaluationReport.overall_mean_score.toFixed(2)} / 5.0
+                   </span>
+                 </div>
+                 <div className="bg-[#00491E] text-white p-4 rounded-xl border border-emerald-700">
+                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Net Satisfaction</span>
+                   <span className="text-2xl font-black text-emerald-300">
+-                    {Math.round((evaluationReport.overall_rating / 5) * 100)}%
++                    {Math.round((evaluationReport.overall_mean_score / 5) * 100)}%
+                   </span>
+                 </div>
+                 <div className="bg-[#00491E] text-white p-4 rounded-xl border border-emerald-700">
+                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Qualitative Comments</span>
+                   <span className="text-2xl font-black text-white">
+-                    {evaluationReport.feedback_comments.length}
++                    {evaluationReport.anonymous_comments.length}
+                   </span>
+                 </div>
+               </div>
+ 
+               {/* Sections Breakdown */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+-                {evaluationReport.section_averages.map((sec, idx) => (
++                {evaluationReport.sections.map((sec, idx) => (
+                   <div key={idx} className="bg-white p-4 rounded-xl border border-stone-200 shadow-xs space-y-2">
+                     <div className="flex items-center justify-between">
+                       <h5 className="font-bold text-xs text-stone-900">{sec.section_name}</h5>
+                       <span className="whitespace-nowrap font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-xs">
+-                        {sec.average_rating.toFixed(2)} / 5.0
++                        {sec.mean_score.toFixed(2)} / 5.0
+                       </span>
+                     </div>
+                     <div className="w-full bg-stone-100 rounded-full h-2">
+                       <div
+                         className="bg-[#00491E] h-2 rounded-full"
+-                        style={{ width: `${(sec.average_rating / 5) * 100}%` }}
++                        style={{ width: `${(sec.mean_score / 5) * 100}%` }}
+                       />
+                     </div>
+                   </div>
+@@ -983,7 +983,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
+                   Student Comments & Suggestions
+                 </h4>
+                 <div className="space-y-2">
+-                  {evaluationReport.feedback_comments.map((comment, i) => (
++                  {evaluationReport.anonymous_comments.map(({ comment }, i) => (
+                     <div key={i} className="p-3 bg-stone-50 rounded-xl text-xs text-stone-700 italic border border-stone-200">
+                       "{comment}"
+                     </div>
+diff --git a/src/services/api.ts b/src/services/api.ts
+index f69f6aa..e6e11d1 100644
+--- a/src/services/api.ts
++++ b/src/services/api.ts
+@@ -7,9 +7,11 @@ import {
+   AdminDashboardStats,
+   ActivityLog,
+   EventReportRow,
++  EventRanking,
+ } from '../types';
+ 
+ let currentUserId: number | null = null; // set after login
++let authToken: string | null = null; // JWT issued by POST /api/auth/login
+ 
+ export const setAuthUserId = (id: number | null) => {
+   currentUserId = id;
+@@ -17,12 +19,18 @@ export const setAuthUserId = (id: number | null) => {
+ 
+ export const getAuthUserId = () => currentUserId;
+ 
++export const setAuthToken = (token: string | null) => {
++  authToken = token;
++};
++
++export const getAuthToken = () => authToken;
++
+ const getHeaders = () => {
+   const headers: Record<string, string> = {
+     'Content-Type': 'application/json',
+   };
+-  if (currentUserId !== null) {
+-    headers['x-user-id'] = currentUserId.toString();
++  if (authToken) {
++    headers['Authorization'] = `Bearer ${authToken}`;
+   }
+   return headers;
+ };
+@@ -43,7 +51,8 @@ export const api = {
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ username, password: passwordPlain }),
+     });
+-    const result = await handleResponse<{ message: string; user: User }>(res);
++    const result = await handleResponse<{ message: string; token: string; user: User }>(res);
++    setAuthToken(result.token);
+     setAuthUserId(result.user.user_id);
+     return result;
+   },
+@@ -65,13 +74,14 @@ export const api = {
+         password: data.passwordPlain,
+       }),
+     });
+-    const result = await handleResponse<{ message: string; user: User }>(res);
++    const result = await handleResponse<{ message: string; token: string; user: User }>(res);
++    setAuthToken(result.token);
+     setAuthUserId(result.user.user_id);
+     return result;
+   },
+ 
+   async getCurrentUser(): Promise<User | null> {
+-    if (!currentUserId) return null;
++    if (!authToken) return null;
+     try {
+       const res = await fetch('/api/auth/me', { headers: getHeaders() });
+       if (!res.ok) return null;
+@@ -303,6 +313,12 @@ export const api = {
+     return data.events;
+   },
+ 
++  async getEventRankings(): Promise<EventRanking[]> {
++    const res = await fetch('/api/reports/rankings', { headers: getHeaders() });
++    const data = await handleResponse<{ rankings: EventRanking[] }>(res);
++    return data.rankings;
++  },
++
+   async getActivity(limit = 20): Promise<{ logs: ActivityLog[]; notifications_seen_at: string | null }> {
+     const res = await fetch(`/api/activity?limit=${limit}`, { headers: getHeaders() });
+     return handleResponse<{ logs: ActivityLog[]; notifications_seen_at: string | null }>(res);
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 433768e..1b2b4a9 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -40,6 +40,18 @@ export interface EventReportRow {
+   average_rating: number | null;
+ }
+ 
++export interface EventRanking {
++  rank: number;
++  event_id: number;
++  event_name: string;
++  department: string;
++  average_rating: number;
++  interpretation: string;
++  evaluation_count: number;
++  attendance_rate_percent: number;
++  response_rate_percent: number;
++}
++
+ export interface EventItem {
+   event_id: number;
+   event_name: string;
+-- 
+2.43.0
+

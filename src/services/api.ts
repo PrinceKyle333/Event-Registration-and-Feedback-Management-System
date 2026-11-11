@@ -7,9 +7,11 @@ import {
   AdminDashboardStats,
   ActivityLog,
   EventReportRow,
+  EventRanking,
 } from '../types';
 
 let currentUserId: number | null = null; // set after login
+let authToken: string | null = null; // JWT issued by POST /api/auth/login
 
 export const setAuthUserId = (id: number | null) => {
   currentUserId = id;
@@ -17,12 +19,18 @@ export const setAuthUserId = (id: number | null) => {
 
 export const getAuthUserId = () => currentUserId;
 
+export const setAuthToken = (token: string | null) => {
+  authToken = token;
+};
+
+export const getAuthToken = () => authToken;
+
 const getHeaders = () => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (currentUserId !== null) {
-    headers['x-user-id'] = currentUserId.toString();
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
   }
   return headers;
 };
@@ -43,7 +51,8 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password: passwordPlain }),
     });
-    const result = await handleResponse<{ message: string; user: User }>(res);
+    const result = await handleResponse<{ message: string; token: string; user: User }>(res);
+    setAuthToken(result.token);
     setAuthUserId(result.user.user_id);
     return result;
   },
@@ -65,13 +74,14 @@ export const api = {
         password: data.passwordPlain,
       }),
     });
-    const result = await handleResponse<{ message: string; user: User }>(res);
+    const result = await handleResponse<{ message: string; token: string; user: User }>(res);
+    setAuthToken(result.token);
     setAuthUserId(result.user.user_id);
     return result;
   },
 
   async getCurrentUser(): Promise<User | null> {
-    if (!currentUserId) return null;
+    if (!authToken) return null;
     try {
       const res = await fetch('/api/auth/me', { headers: getHeaders() });
       if (!res.ok) return null;
@@ -301,6 +311,12 @@ export const api = {
     const res = await fetch('/api/reports/events', { headers: getHeaders() });
     const data = await handleResponse<{ events: EventReportRow[] }>(res);
     return data.events;
+  },
+
+  async getEventRankings(): Promise<EventRanking[]> {
+    const res = await fetch('/api/reports/rankings', { headers: getHeaders() });
+    const data = await handleResponse<{ rankings: EventRanking[] }>(res);
+    return data.rankings;
   },
 
   async getActivity(limit = 20): Promise<{ logs: ActivityLog[]; notifications_seen_at: string | null }> {

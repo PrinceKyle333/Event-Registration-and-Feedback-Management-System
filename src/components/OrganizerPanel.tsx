@@ -178,10 +178,10 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
     const headers = ['Registration ID', 'Student Name', 'Email', 'Student ID', 'Department', 'Registered At', 'Attendance Status', 'Evaluated'];
     const rows = registrations.map((r) => [
       r.registration_id,
-      `"${r.student?.full_name || ''}"`,
-      r.student?.email || '',
-      r.student?.student_id || '',
-      `"${r.student?.college_department || ''}"`,
+      `"${r.student_name || ''}"`,
+      r.student_email || '',
+      r.student_id_number || '',
+      `"${r.college_department || ''}"`,
       r.registered_at,
       r.attendance_status,
       r.has_evaluated ? 'Yes' : 'No',
@@ -277,10 +277,10 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
   const filteredRegistrations = registrations.filter((r) => {
     if (!regSearchQuery.trim()) return true;
     const q = regSearchQuery.toLowerCase();
-    const name = r.student?.full_name?.toLowerCase() || '';
-    const email = r.student?.email?.toLowerCase() || '';
-    const sid = r.student?.student_id?.toLowerCase() || '';
-    const dept = r.student?.college_department?.toLowerCase() || '';
+    const name = r.student_name?.toLowerCase() || '';
+    const email = r.student_email?.toLowerCase() || '';
+    const sid = r.student_id_number?.toLowerCase() || '';
+    const dept = r.college_department?.toLowerCase() || '';
     return name.includes(q) || email.includes(q) || sid.includes(q) || dept.includes(q);
   });
 
@@ -625,14 +625,14 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                     {filteredRegistrations.map((reg) => (
                       <tr key={reg.registration_id} className="hover:bg-stone-50/60">
                         <td className="py-3 px-4">
-                          <div className="font-bold text-stone-900">{reg.student?.full_name}</div>
-                          <div className="text-[11px] text-stone-500">{reg.student?.email}</div>
+                          <div className="font-bold text-stone-900">{reg.student_name}</div>
+                          <div className="text-[11px] text-stone-500">{reg.student_email}</div>
                         </td>
                         <td className="py-3 px-4 font-mono font-medium text-stone-700">
-                          {reg.student?.student_id || '—'}
+                          {reg.student_id_number || '—'}
                         </td>
                         <td className="py-3 px-4 text-stone-700">
-                          {reg.student?.college_department || '—'}
+                          {reg.college_department || '—'}
                         </td>
                         <td className="py-3 px-4 text-stone-500 font-mono text-[11px]">
                           {new Date(reg.registered_at).toLocaleDateString()}
@@ -751,10 +751,10 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                   {registrations.map((reg) => (
                     <tr key={reg.registration_id} className="hover:bg-stone-50/60">
                       <td className="py-3 px-4 font-bold text-stone-900">
-                        {reg.student?.full_name}
+                        {reg.student_name}
                       </td>
                       <td className="py-3 px-4 font-mono text-stone-700">
-                        {reg.student?.student_id || '—'}
+                        {reg.student_id_number || '—'}
                       </td>
                       <td className="py-3 px-4">
                         <span className={`whitespace-nowrap px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
@@ -940,37 +940,37 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                 <div className="bg-[#00491E] text-white p-4 rounded-xl border border-emerald-700">
                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Overall Mean Rating</span>
                   <span className="text-2xl font-black text-[#FFC600]">
-                    {evaluationReport.overall_rating.toFixed(2)} / 5.0
+                    {evaluationReport.overall_mean_score.toFixed(2)} / 5.0
                   </span>
                 </div>
                 <div className="bg-[#00491E] text-white p-4 rounded-xl border border-emerald-700">
                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Net Satisfaction</span>
                   <span className="text-2xl font-black text-emerald-300">
-                    {Math.round((evaluationReport.overall_rating / 5) * 100)}%
+                    {Math.round((evaluationReport.overall_mean_score / 5) * 100)}%
                   </span>
                 </div>
                 <div className="bg-[#00491E] text-white p-4 rounded-xl border border-emerald-700">
                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Qualitative Comments</span>
                   <span className="text-2xl font-black text-white">
-                    {evaluationReport.feedback_comments.length}
+                    {evaluationReport.anonymous_comments.length}
                   </span>
                 </div>
               </div>
 
               {/* Sections Breakdown */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {evaluationReport.section_averages.map((sec, idx) => (
+                {evaluationReport.sections.map((sec, idx) => (
                   <div key={idx} className="bg-white p-4 rounded-xl border border-stone-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <h5 className="font-bold text-xs text-stone-900">{sec.section_name}</h5>
                       <span className="whitespace-nowrap font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-xs">
-                        {sec.average_rating.toFixed(2)} / 5.0
+                        {sec.mean_score.toFixed(2)} / 5.0
                       </span>
                     </div>
                     <div className="w-full bg-stone-100 rounded-full h-2">
                       <div
                         className="bg-[#00491E] h-2 rounded-full"
-                        style={{ width: `${(sec.average_rating / 5) * 100}%` }}
+                        style={{ width: `${(sec.mean_score / 5) * 100}%` }}
                       />
                     </div>
                   </div>
@@ -983,7 +983,7 @@ export const OrganizerPanel: React.FC<OrganizerPanelProps> = ({
                   Student Comments & Suggestions
                 </h4>
                 <div className="space-y-2">
-                  {evaluationReport.feedback_comments.map((comment, i) => (
+                  {evaluationReport.anonymous_comments.map(({ comment }, i) => (
                     <div key={i} className="p-3 bg-stone-50 rounded-xl text-xs text-stone-700 italic border border-stone-200">
                       "{comment}"
                     </div>

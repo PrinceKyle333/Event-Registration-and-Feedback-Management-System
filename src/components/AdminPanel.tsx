@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { EvaluationReportView } from './EvaluationReportView';
+import { EventRankingsTable } from './EventRankingsTable';
 import { SummaryCards, SummaryCard, SubTabBar, SubTab } from './SummaryCards';
 
 interface AdminPanelProps {
@@ -884,6 +885,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* 5. MODULE: EVALUATION REPORTS */}
       {activeSubTab === 'eval-reports' && (
         <div className="space-y-4">
+          <EventRankingsTable />
           <EvaluationReportView events={events} />
         </div>
       )}

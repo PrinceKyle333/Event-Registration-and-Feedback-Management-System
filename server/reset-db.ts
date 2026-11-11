@@ -1,19 +1,16 @@
-import fs from 'fs';
-import path from 'path';
+import dotenv from 'dotenv';
 
-// Rebuilds data/database.json from the seed in db.ts, keeping a backup of the previous file.
-const dbFile = path.resolve(process.cwd(), 'data', 'database.json');
-if (fs.existsSync(dbFile)) {
-  const backup = dbFile.replace(/\.json$/, '.backup.json');
-  fs.copyFileSync(dbFile, backup);
-  console.log(`Previous database backed up to ${path.relative(process.cwd(), backup)}`);
-}
+dotenv.config();
 
-const { db } = await import('./db');
-db.seedInitialData();
+// Clears every MySQL table and re-inserts the CMU demo dataset (accounts, events, survey, evaluations).
+const { db } = await import('./repository.ts');
 
-const stats = db.getAdminDashboardStats();
+await db.init();
+await db.seedInitialData();
+
+const stats = await db.getAdminDashboardStats();
 console.log(
-  `Database reseeded: ${stats.total_events} events, ${stats.total_students} students, ` +
-    `${stats.total_registrations} registrations, ${stats.total_attended} attended, ${stats.total_evaluations} evaluations.`
+  `MySQL database reseeded: ${stats.total_events} events, ${stats.total_students} students, ` +
+    `${stats.total_registrations} registrations, ${stats.total_attended} attended, ${stats.total_evaluations} evaluations.`,
 );
+await db.close();
